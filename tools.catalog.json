@@ -1,0 +1,20 @@
+[
+  {"id": "gmail", "name": "Gmail", "url": "https://mail.google.com/", "group": "Mail and calendar"},
+  {"id": "google-calendar", "name": "Google Calendar", "url": "https://calendar.google.com/", "group": "Mail and calendar"},
+  {"id": "outlook", "name": "Outlook", "url": "https://outlook.office.com/mail/", "group": "Mail and calendar"},
+  {"id": "outlook-calendar", "name": "Outlook Calendar", "url": "https://outlook.office.com/calendar/", "group": "Mail and calendar"},
+  {"id": "slack", "name": "Slack", "url": "https://app.slack.com/client", "group": "Chat"},
+  {"id": "teams", "name": "Microsoft Teams", "url": "https://teams.microsoft.com/", "group": "Chat"},
+  {"id": "whatsapp", "name": "WhatsApp", "url": "https://web.whatsapp.com/", "group": "Chat"},
+  {"id": "discord", "name": "Discord", "url": "https://discord.com/app", "group": "Chat"},
+  {"id": "obsidian", "name": "Obsidian", "url": "obsidian://open?vault={vault}", "group": "Notes and files"},
+  {"id": "notion", "name": "Notion", "url": "https://www.notion.so/", "group": "Notes and files"},
+  {"id": "google-drive", "name": "Google Drive", "url": "https://drive.google.com/", "group": "Notes and files"},
+  {"id": "github", "name": "GitHub", "url": "https://github.com/", "group": "Work"},
+  {"id": "linear", "name": "Linear", "url": "https://linear.app/", "group": "Work"},
+  {"id": "trello", "name": "Trello", "url": "https://trello.com/", "group": "Work"},
+  {"id": "asana", "name": "Asana", "url": "https://app.asana.com/", "group": "Work"},
+  {"id": "linkedin", "name": "LinkedIn", "url": "https://www.linkedin.com/", "group": "Work"},
+  {"id": "claude", "name": "Claude", "url": "https://claude.ai/", "group": "AI"},
+  {"id": "chatgpt", "name": "ChatGPT", "url": "https://chatgpt.com/", "group": "AI"}
+]

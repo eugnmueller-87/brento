@@ -1,0 +1,3 @@
+# A shell script with Windows line endings stops on macOS and Linux, wherever it was checked out.
+*.sh text eol=lf
+*.command text eol=lf

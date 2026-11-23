@@ -1,0 +1,3 @@
+# Made-up words for the tests. The real list is ~/.leitstand/private-terms.txt.
+Geheimsache
+Akte 999

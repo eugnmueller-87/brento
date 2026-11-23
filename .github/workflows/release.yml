@@ -1,0 +1,28 @@
+# A pushed tag like v0.2.0 becomes a release: tests first, then the changelog section as the release text.
+name: release
+on:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Unit tests
+        run: python -m unittest discover -s tests
+      - name: The tag matches VERSION
+        run: test "v$(tr -d '[:space:]' < VERSION)" = "$GITHUB_REF_NAME"
+      - name: Release text from the changelog
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          awk -v head="## $v " 'index($0, head) == 1 {on = 1; next} /^## / {if (on) exit} on' CHANGELOG.md > notes.md
+          test -s notes.md || { echo "CHANGELOG.md has no section for $v"; exit 1; }
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --title "Brento $GITHUB_REF_NAME" --notes-file notes.md --verify-tag

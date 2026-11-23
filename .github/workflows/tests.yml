@@ -1,0 +1,28 @@
+# Every push runs the tests, on the Python of the always-on Mac (3.9) and a current one.
+name: tests
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # ubuntu-latest is Ubuntu 26.04 since November 2026, and setup-python has no 3.9 for it
+          # (3.9.25 is built for 22.04 and 24.04 only). So the Mac's Python runs on 24.04.
+          - python: "3.9"
+            os: ubuntu-24.04
+          - python: "3.13"
+            os: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Unit tests
+        run: python -m unittest discover -s tests
+      - name: Page and shell scripts parse
+        run: |
+          for f in web/app.js web/art.js; do node --check "$f" || exit 1; done
+          sh -n install.sh
+          sh -n "Install Brento.command"

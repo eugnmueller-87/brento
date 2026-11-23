@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+.env
+desktop/node_modules/
+node_modules/

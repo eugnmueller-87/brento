@@ -1,0 +1,16 @@
+{
+  "team": "Acme",
+  "board": {
+    "owner": "acme",
+    "ownerType": "org",
+    "number": 1,
+    "statusField": "Lane",
+    "areaField": "Area",
+    "dueField": "Due",
+    "doneField": "",
+    "homeAreas": {}
+  },
+  "tools": ["outlook", "outlook-calendar", "teams", "github", "claude"],
+  "calendar": "outlook",
+  "slack": {"digest": "08:30", "alerts": true, "remind": 10, "sources": ["calendar", "board", "tasks"]}
+}

@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en" data-motion="full">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0b0e15">
+  <title>Brento</title>
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <!-- Lets the browser install this as its own app window. Credentials, so the key cookie goes along off loopback. -->
+  <link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials">
+  <!-- iPhone and iPad: "Add to Home Screen" makes Brento its own app with this icon and no Safari bars. -->
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Brento">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div id="ambient" aria-hidden="true"><canvas id="amb-a" width="64" height="36"></canvas><canvas id="amb-b" width="64" height="36"></canvas></div>
+  <div id="app">
+    <header class="top">
+      <a class="brand" href="#home" aria-label="Brento, go to Home"><span class="brand-mark" aria-hidden="true"></span><span>Brento</span></a>
+      <button class="btn icon back" type="button" id="back" aria-label="Back" title="Back (Alt ←, Backspace)" hidden></button>
+      <span class="crumb" id="crumb"></span>
+      <div class="top-right">
+        <div class="clock"><strong id="clock"></strong><span id="date"></span></div>
+        <button class="btn icon" type="button" id="refresh" aria-label="Refresh now" title="Refresh now (R)"></button>
+        <button class="btn icon" type="button" id="open-palette" aria-label="Search, Control K" title="Search (Ctrl K)"></button>
+      </div>
+    </header>
+    <section class="strip" id="strip" aria-label="Days. Open one to see what is on it"></section>
+    <main id="view" tabindex="-1"></main>
+  </div>
+  <nav id="dock" aria-label="Main. Right-click for dock options"></nav>
+  <div id="dock-menu" class="ctx" role="menu" aria-label="Dock" hidden></div>
+
+  <div id="palette" class="overlay" hidden>
+    <div class="palette-box" role="dialog" aria-modal="true" aria-label="Jump to">
+      <input id="palette-input" type="text" placeholder="Jump to a page, project, tool or note" autocomplete="off" spellcheck="false">
+      <ul id="palette-list" role="listbox"></ul>
+      <p class="palette-foot"><kbd>↑</kbd><kbd>↓</kbd> choose <kbd>↵</kbd> open <kbd>Esc</kbd> close</p>
+    </div>
+  </div>
+
+  <div id="tools" class="overlay" hidden>
+    <div class="tools-box" role="dialog" aria-modal="true" aria-label="All tools">
+      <header class="tools-head">
+        <h2>All tools</h2>
+        <p>What we built. Opens beside this page, signed in as you. The star puts a tool in the dock. Outside apps such as WhatsApp or Slack: the + in the dock.</p>
+        <button class="btn icon" type="button" id="tools-close" aria-label="Close">×</button>
+      </header>
+      <div id="tools-list"></div>
+      <form id="tools-add" class="tools-add">
+        <input id="tool-name" type="text" placeholder="Name" maxlength="40" aria-label="Tool name" autocomplete="off">
+        <input id="tool-url" type="text" placeholder="https://…" aria-label="Tool link" autocomplete="off" spellcheck="false">
+        <input id="tool-group" type="text" placeholder="Group" maxlength="30" aria-label="Group" list="tool-groups" autocomplete="off">
+        <datalist id="tool-groups"></datalist>
+        <label class="tools-dock"><input id="tool-dock" type="checkbox" checked> In the dock</label>
+        <button class="btn primary" type="submit">Add tool</button>
+      </form>
+      <p class="tools-error" id="tools-error" role="alert"></p>
+    </div>
+  </div>
+
+  <div id="alert-pop" class="overlay" hidden></div>
+  <div id="toast" role="status"></div>
+  <script src="/art.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>
