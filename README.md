@@ -166,8 +166,9 @@ The Ask box is optional and can stay off.
 Version 0.2.0, see [CHANGELOG.md](CHANGELOG.md). Brento grew out of a dashboard its author uses every day on
 Windows. Before a version is published, GitHub's computers install it, open it, go through the whole setup in a
 browser, update it and remove it: macOS 15 and 26 (Apple chip and Intel), macOS 27, Windows 11 (on Arm) and Windows
-Server 2022 and 2025. What no automatic test covers: the password question of macOS after *Open Anyway*, the warning of
-SmartScreen, macOS 13 and 14, and the pairing of a real phone. If something fails, please open an issue.
+Server 2022 and 2025. What no automatic test covers: the password question of macOS after *Open Anyway*, its question
+whether Brento may read a folder, notes that lie only in a cloud, the warning of SmartScreen, macOS 13 and 14, and the
+pairing of a real phone. If something fails, please open an issue.
 
 ## Credits and license
 

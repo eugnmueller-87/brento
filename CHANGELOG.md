@@ -46,7 +46,12 @@ bookmarks in that browser work after that.
   that works.
 - A source that could not be read, or that stopped answering, is never called quiet any more, neither on Home nor in the
   Slack summary. The summary waits a moment for it and then names it. Nothing goes to Slack before the setup is finished.
-- Coming back to the setup for one thing, such as the calendar, shows and saves only that.
+- Coming back to the setup for one thing, such as the calendar, shows and saves only that. The settings lead to each
+  question step by step.
+- With nothing connected, Home says so instead of *All quiet*.
+- A folder that does not exist is said on the spot, and a copied path works with the quotes Windows puts around it.
+- On a Mac, Brento may fetch notes that lie only in iCloud. macOS does not allow that to a program that starts at login
+  unless it asks for it.
 - Meetings from other time zones show the right hour on Windows, and everywhere for Outlook calendars.
 - Outlook meetings with a link to a call reach Home, although Outlook's link names no guests.
 - On a Mac the start no longer waits for the network, up to 35 seconds in some places, and no longer raises the question

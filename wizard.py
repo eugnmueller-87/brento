@@ -165,8 +165,9 @@ def guess_name(gh_ready):
 
 def vault_stats(folder):
     """How much Brento will find in a vault: notes and open tasks with a date. Counted, never read out."""
-    root = Path(folder)
-    if not os.path.isdir(str(root)):
+    # Not Path.expanduser, which raises for a ~name nobody has.
+    root = Path(os.path.expanduser(folder))
+    if not folder or not os.path.isdir(str(root)):
         return {"notes": 0, "tasks": 0, "error": "That folder does not exist."}
     try:
         os.listdir(str(root))

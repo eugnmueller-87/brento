@@ -8,6 +8,7 @@ The release workflow runs this on real Macs and Windows computers before anythin
 """
 import json
 import os
+import plistlib
 import re
 import subprocess
 import sys
@@ -117,6 +118,8 @@ def up(kept=False):
     check(said == "15", "its own Python knows other time zones: %s" % said)
     entry = autostart()
     check("launcher.py" in entry and "--start" in entry if WINDOWS else "state = running" in entry, "it starts at sign-in")
+    if not WINDOWS:
+        check(plistlib.loads(SHORTCUTS[-1].read_bytes()).get("MaterializeDatalessFiles") is True, "it may fetch notes that lie only in iCloud")
 
 
 def down():

@@ -107,7 +107,7 @@ def normalize(data, saved=False):
     out["name"] = name
     vault = str(data.get("vault") or "").strip()
     if vault:
-        folder = Path(vault).expanduser()
+        folder = Path(os.path.expanduser(vault))
         # os.path never raises, also not on a network drive that is away.
         if os.path.isdir(str(folder)):
             vault = str(folder.resolve())

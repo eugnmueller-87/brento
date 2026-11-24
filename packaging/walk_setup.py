@@ -75,6 +75,7 @@ def walk(browser, pictures):
     check(heading() == PAGES[-1], "the last page stays")
     check(click("#wz-home"), "there is a button that opens Brento")
     check(until(lambda: browser.execute_script("return location.hash") == "#home", 10), "it leads to Home")
+    check(until(lambda: "Nothing is connected yet" in browser.page_source, 10), "Home says that nothing is connected yet")
     check(not browser.execute_script("return window.brentoErrors"), "no script failed")
     browser.refresh()
     time.sleep(4)
@@ -87,10 +88,18 @@ def walk(browser, pictures):
     check(view.get("needed") is False and view["profile"]["name"] == NAME, "the answers are saved")
 
 
+def chrome():
+    """Without a window, because a virtual Mac without a graphics chip stops drawing one after a while."""
+    options = webdriver.ChromeOptions()
+    for flag in ("--headless=new", "--disable-gpu", "--no-first-run"):
+        options.add_argument(flag)
+    return webdriver.Chrome(options=options)
+
+
 def drive(names):
     """A browser that can be driven. Safari's automation needs a few tries on a slow computer, and it cannot take over a
     Safari that is already open."""
-    kinds = {"safari": webdriver.Safari, "edge": webdriver.Edge, "chrome": webdriver.Chrome}
+    kinds = {"safari": webdriver.Safari, "edge": webdriver.Edge, "chrome": chrome}
     for name in names:
         for _ in range(3):
             if name == "safari":

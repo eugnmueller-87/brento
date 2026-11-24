@@ -83,7 +83,8 @@ if [ $MAC = 1 ]; then
   rm -f "$AGENT"
 fi
 if [ $MAC = 1 ] && [ $AUTOSTART = 1 ]; then
-  # Starts at every login. A crash restarts it; a clean stop (another Brento already answers) does not.
+  # Starts at every login. A crash restarts it; a clean stop (another Brento already answers) does not. Without
+  # MaterializeDatalessFiles a login service may not fetch notes that lie only in iCloud (getiopolicy_np says off).
   mkdir -p "$HOME/Library/LaunchAgents"
   HOME_ENTRY=""
   if [ -n "${BRENTO_HOME:-}" ]; then HOME_ENTRY="<key>BRENTO_HOME</key><string>$(xml "$BRENTO_HOME")</string>"; fi
@@ -98,6 +99,7 @@ if [ $MAC = 1 ] && [ $AUTOSTART = 1 ]; then
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
   <key>ThrottleInterval</key><integer>30</integer>
+  <key>MaterializeDatalessFiles</key><true/>
   <key>StandardOutPath</key><string>$(xml "$DIR/server.log")</string>
   <key>StandardErrorPath</key><string>$(xml "$DIR/server.log")</string>
   <key>EnvironmentVariables</key><dict><key>PATH</key><string>$(xml "$BIN:$DIR/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin")</string>$HOME_ENTRY</dict>

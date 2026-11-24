@@ -639,7 +639,12 @@
   // One that was read and only carries no date has no note.
   const unread = () => S.sources.filter((s) => s.state === 'unknown' && s.note && (s.id !== 'calendar' || S.calendarConnected));
   const lostNow = () => unread().filter((s) => s.note !== 'still loading');
+  // With nothing to read, a calm screen would claim something Brento cannot know.
+  const nothingYet = () => !S.calendarConnected && !S.sources.some((s) => s.id !== 'calendar');
   function quietCard() {
+    if (nothingYet()) return { id: 'quiet', kind: 'pipeline', level: 'calm', eyebrow: 'Start here', tag: '', title: 'Nothing is connected yet',
+      body: S.phone ? 'Connect your calendar, your notes or your board in Brento on the computer.' : 'Connect your calendar, your notes or your board, and this page tells you what needs you.',
+      why: 'Until then there is nothing Brento could read.', source: 'Sources', sourceState: 'unknown', sourceAge: 'none yet', route: S.phone ? 'today' : 'settings', heat: 0, fog: 0.08 };
     const lost = unread();
     if (lost.length || S.vaultProblem) {
       const loading = !S.vaultProblem && lost.every((s) => s.note === 'still loading');
@@ -1560,6 +1565,7 @@
       + setupOpt('radio', 'su-vault', '__other', !!P.vault && !listed, 'Another folder', 'Type its full path below')
       + setupOpt('radio', 'su-vault', '', !P.vault && !(SETUP.needed && SETUP.vaults.some((v) => v.open)), 'No vault', 'Calendar and board only. Notes, tasks and Ask stay off.') + '</div>'
       + '<div class="setup-field"><label for="su-vault-path">Folder path</label><input id="su-vault-path" value="' + esc(listed ? '' : P.vault) + '" spellcheck="false" placeholder="Full path of the vault folder"></div>'
+      + '<p class="note"><a class="link-btn" href="#setup/1">Choose your notes step by step</a></p>'
       + (SETUP.vaultMissing ? '<p class="tools-error">This folder is not there at the moment: ' + esc(P.vault) + '. It may have been renamed, or its drive is not connected. Brento goes on without your notes until you choose the folder again here.</p>' : ''));
     html += step('3', 'Sources', '', 'Switch on what you use. A source that is on but cannot be read shows N/A on the Brain page, never an empty success.',
       grouped(SETUP.sources).map((g) => '<div class="setup-group">' + esc(g.name) + '</div><div class="setup-grid">' + g.items.map((s) => '<div>' + setupOpt('checkbox', 'su-src', s.id, on(s), s.label, s.about)
@@ -1569,7 +1575,7 @@
     const B = P.board, gh = SETUP.gh;
     html += step('4', 'GitHub Project board', setupStatus(gh.ready, gh.ready ? 'signed in' + (gh.login ? ' as ' + gh.login : '') : 'not signed in'),
       'Brento reads the board through GitHub\'s own program, with your sign-in. Cards in the lanes HIGH, MID and LOW count; a HIGH card with a date inside a week reaches Home.',
-      (gh.ready ? '' : '<p class="note">' + esc(gh.reason) + ' <a class="link-btn" href="#setup/2">Sign in to GitHub</a></p>')
+      (gh.ready ? '<p class="note"><a class="link-btn" href="#setup/2">Choose a board, or make a new one, step by step</a></p>' : '<p class="note">' + esc(gh.reason) + ' <a class="link-btn" href="#setup/2">Sign in to GitHub</a></p>')
       + '<div class="setup-row"><div class="setup-field"><label for="su-owner">Owner: your login or an organization</label><input id="su-owner" value="' + esc(B.owner) + '" spellcheck="false"></div>'
       + '<div class="setup-field"><label for="su-kind">The owner is</label><select id="su-kind"><option value="user"' + (B.ownerType !== 'org' ? ' selected' : '') + '>a person</option><option value="org"' + (B.ownerType === 'org' ? ' selected' : '') + '>an organization</option></select></div>'
       + '<div class="setup-field"><label for="su-num">Project number</label><input id="su-num" inputmode="numeric" value="' + esc(B.number || '') + '" placeholder="the number at the end of its address"></div>'
@@ -1587,7 +1593,7 @@
     html += step('8', 'Slack', setupStatus(SETUP.slackConnected, SETUP.slackConnected ? 'connected' : 'not connected'), 'A morning summary, a note when something new needs you, a reminder before meetings. Through a webhook you make in your own Slack.',
       (SETUP.slackError ? '<p class="tools-error">' + esc(SETUP.slackError) + '</p>' : '')
       + (SETUP.slackConnected ? '<p class="note"><button class="link-btn" type="button" id="sl-test">Send a test</button> · <button class="link-btn" type="button" id="sl-off">Disconnect</button></p>'
-        : '<p class="note"><a href="' + esc(SETUP.slackCreate) + '" target="_blank" rel="noopener noreferrer">Create the Brento app in Slack</a>, then Incoming Webhooks, Add New Webhook, pick a channel, Allow, and paste the link.</p><div class="cal-form"><div><input id="sl-url" type="password" placeholder="https://hooks.slack.com/services/…" autocomplete="off"><button class="btn" type="button" id="sl-go">Connect</button></div></div>')
+        : '<p class="note"><a href="' + esc(SETUP.slackCreate) + '" target="_blank" rel="noopener noreferrer">Create the Brento app in Slack</a>, then Incoming Webhooks, Add New Webhook, pick a channel, Allow, and paste the link. Or <a class="link-btn" href="#setup/4">step by step</a>.</p><div class="cal-form"><div><input id="sl-url" type="password" placeholder="https://hooks.slack.com/services/…" autocomplete="off"><button class="btn" type="button" id="sl-go">Connect</button></div></div>')
       + '<div class="setup-row"><div class="setup-field"><label for="sl-digest">Morning summary at</label><input id="sl-digest" type="time" value="' + esc(SL.digest) + '"></div>'
       + '<div class="setup-field"><label for="sl-remind">Reminder before meetings</label><select id="sl-remind">' + [0, 5, 10, 15, 30].map((m) => '<option value="' + m + '"' + (Number(SL.remind) === m ? ' selected' : '') + '>' + (m ? m + ' minutes' : 'Off') + '</option>').join('') + '</select></div></div>'
       + '<label class="wz-check"><input type="checkbox" id="sl-alerts"' + (SL.alerts ? ' checked' : '') + '> Tell me when something new needs me</label>'
@@ -1617,7 +1623,7 @@
     };
     $('#su-save').onclick = async () => {
       const pick = ($('input[name="su-vault"]:checked') || {}).value || '';
-      const vault = pick === '__other' ? path.value.trim() : pick;
+      const vault = pick === '__other' ? typedPath(path) : pick;
       const srcs = {};
       SETUP.sources.forEach((s) => {
         const box = $('input[name="su-src"][value="' + s.id + '"]');
@@ -1694,10 +1700,21 @@
       paintWizard();
     }).catch((err) => { const box = $('#wz'); if (box) box.innerHTML = '<section class="wz-card"><p class="tools-error">' + esc(err.message) + '</p></section>'; });
   }
+  // Only the line with the result is painted anew, so nothing that is being typed is lost.
   function vaultStats() {
+    const asked = WZ.vault;
     WZ.stats = null;
-    fetch('/api/wizard/vault?path=' + encodeURIComponent(WZ.vault)).then((r) => r.json()).then((j) => { WZ.stats = j; if (WZ_STEPS[WZ.step] === 'notes') paintWizard(); }).catch(() => {});
+    paintFound();
+    return fetch('/api/wizard/vault?path=' + encodeURIComponent(asked)).then((r) => r.json()).then((j) => { if (asked === WZ.vault) { WZ.stats = j; paintFound(); } return j; }).catch(() => null);
   }
+  function wzFound() {
+    if (!WZ.vault) return '';
+    if (!WZ.stats) return '<p class="wz-lead">Counting notes…</p>';
+    return WZ.stats.error ? wzWarn(esc(WZ.stats.error)) : wzOk('Found ' + WZ.stats.notes.toLocaleString('en-GB') + ' notes and ' + WZ.stats.tasks + (WZ.stats.tasks === 1 ? ' task' : ' tasks') + ' with a date.');
+  }
+  function paintFound() { const box = $('#wz-found'); if (box) box.innerHTML = wzFound(); }
+  // Windows puts quotes around a path that was copied.
+  const typedPath = (el) => (el ? el.value.trim().replace(/^(["'])(.*)\1$/, '$2').trim() : '');
   function wzGo(delta) {
     clearInterval(WZ.timer);
     WZ.msg = '';
@@ -1790,10 +1807,11 @@
     const d = WZ.data;
     let html = '<h2>Your notes</h2><p class="wz-lead">Brento reads your Obsidian notes and the tasks in them that carry a date. It never changes a note.</p><div class="wz-choices">';
     html += d.vaults.map((v) => wzChoice('data-vault="' + esc(v.path) + '"', v.name, v.path, !WZ.other && WZ.vault === v.path)).join('');
-    html += wzChoice('data-vault="__other"', 'Another folder', 'Type its path', WZ.other) + wzChoice('data-vault=""', 'I don\'t use Obsidian', 'Calendar and board only', !WZ.vault && !WZ.other) + '</div>';
-    if (WZ.other) html += '<div class="setup-field"><label for="wz-path">Folder path</label><input id="wz-path" value="' + esc(WZ.vault) + '" spellcheck="false" placeholder="Full path of your vault folder"></div>';
-    if (WZ.vault && WZ.stats) html += WZ.stats.error ? wzWarn(esc(WZ.stats.error)) : wzOk('Found ' + WZ.stats.notes.toLocaleString('en-GB') + ' notes and ' + WZ.stats.tasks + (WZ.stats.tasks === 1 ? ' task' : ' tasks') + ' with a date.');
-    else if (WZ.vault) html += '<p class="wz-lead">Counting notes…</p>';
+    html += wzChoice('data-vault="__other"', 'Another folder', 'Show Brento where it is', WZ.other) + wzChoice('data-vault=""', 'I don\'t use Obsidian', 'Calendar and board only', !WZ.vault && !WZ.other) + '</div>';
+    if (WZ.other) html += '<div class="setup-field"><label for="wz-path">Where the folder is</label><input id="wz-path" value="' + esc(WZ.vault) + '" spellcheck="false" placeholder="Paste it here"></div>'
+      + (d.platform === 'win32' ? '<p class="note">In the Explorer, right-click the folder, choose <b>Copy as path</b> and paste it here. On Windows 10 hold Shift while you right-click.</p>'
+        : d.platform === 'darwin' ? '<p class="note">In the Finder, hold <b>Control</b> and click the folder, then hold <b>Option</b> as well, choose <b>Copy … as Pathname</b> and paste it here.</p>' : '');
+    html += '<div id="wz-found">' + wzFound() + '</div>';
     if (d.platform === 'darwin' && /\/(Documents|Desktop|Downloads|Library\/(Mobile Documents|CloudStorage))(\/|$)/.test(WZ.vault)) html += '<p class="note">macOS may ask whether Brento may read this folder. Click Allow.</p>';
     return html;
   }
@@ -1953,7 +1971,7 @@
     on('#wz-close', () => { WZ.over = true; stateText = ''; load(); navigate('home'); });
     on('#wz-ask', () => wzAskOn(WZ.data, WZ.sources || WZ.data.profile.sources));
     on('#wz-one', async () => {
-      if (name === 'notes' && WZ.other) { const p = $('#wz-path'); WZ.vault = p ? p.value.trim() : ''; }
+      if (name === 'notes' && WZ.other) WZ.vault = typedPath($('#wz-path'));
       const b = $('#wz-one'); b.disabled = true;
       try { await wzSaveOne(name); WZ.over = true; stateText = ''; await load(); loadTools(true); navigate('home'); }
       catch (err) { $('#wz-error').textContent = err.message; b.disabled = false; }
@@ -1967,7 +1985,7 @@
     if (name === 'notes') {
       $$('#wz [data-vault]').forEach((b) => { b.onclick = () => { const v = b.dataset.vault; WZ.other = v === '__other'; WZ.vault = WZ.other ? '' : v; if (WZ.vault) vaultStats(); paintWizard(); }; });
       const p = $('#wz-path');
-      if (p) { p.onchange = () => { WZ.vault = p.value.trim(); if (WZ.vault) vaultStats(); paintWizard(); }; }
+      if (p) { p.onchange = () => { WZ.vault = typedPath(p); if (WZ.vault) vaultStats(); else paintFound(); }; }
     }
     if (name === 'board') {
       const pickBoard = wzPickBoard;
@@ -1996,7 +2014,13 @@
     }
     if (name === 'tools') $$('#wz [data-tool]').forEach((c) => { c.onchange = () => { if (c.checked) WZ.tools.add(c.dataset.tool); else WZ.tools.delete(c.dataset.tool); }; });
     on('#wz-next', async () => {
-      if (name === 'notes' && WZ.other) { const p = $('#wz-path'); WZ.vault = p ? p.value.trim() : ''; }
+      if (name === 'notes' && WZ.other) {
+        // A folder that cannot be read is said here, not four questions later.
+        const typed = typedPath($('#wz-path')), seen = typed === WZ.vault && WZ.stats;
+        WZ.vault = typed;
+        const found = typed ? seen || await vaultStats() : null;
+        if (route !== 'setup' || WZ_STEPS[WZ.step] !== name || (found && found.error)) return undefined;
+      }
       if (name !== 'tools') return wzGo(1);
       const b = $('#wz-next'); b.disabled = true; b.textContent = 'Saving…';
       try { await wzSave(); stateText = ''; await load(); loadTools(true); wzGo(1); }
