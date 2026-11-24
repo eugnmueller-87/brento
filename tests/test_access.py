@@ -354,7 +354,7 @@ class Neighbours(Home):
 
 class LostFolder(Home):
     def test_a_renamed_notes_folder_does_not_keep_brento_from_starting(self):
-        vault = self.home / "My notes"
+        vault = self.home.resolve() / "My notes"
         vault.mkdir()
         (vault / "a.md").write_text("- [ ] Send the offer \U0001f4c5 2099-01-02\n", encoding="utf-8")
         settings.save({"name": "Alex", "vault": str(vault), "sources": {"tasks": {"on": True}, "library": {"on": True}}})
