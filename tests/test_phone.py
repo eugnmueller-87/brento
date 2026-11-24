@@ -137,9 +137,6 @@ class PhoneDoor(unittest.TestCase):
     def call(self, method, path, body=None, cookie="", host=None, kind="application/json"):
         conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
         headers = {"Host": host or "127.0.0.1:%d" % self.port}
-        if method == "GET" and path.startswith("/api/"):
-            # The page sends this with everything it asks for.
-            headers["X-Leitstand"] = "1"
         if cookie:
             headers["Cookie"] = "%s=%s" % (phone.COOKIE, cookie)
         if body is not None:

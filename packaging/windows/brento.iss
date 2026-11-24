@@ -137,6 +137,8 @@ Filename: "{app}\python\pythonw.exe"; Parameters: """{app}\app\launcher.py"" --r
 Filename: "{app}\python\pythonw.exe"; Parameters: """{app}\app\launcher.py"" --stop"; RunOnceId: "StopBrento"
 
 [UninstallDelete]
+; Python writes compiled files next to its own and to ours.
+Type: filesandordirs; Name: "{app}\python"
 Type: filesandordirs; Name: "{app}\app\__pycache__"
 Type: dirifempty; Name: "{app}\app"
 Type: dirifempty; Name: "{app}"

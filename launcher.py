@@ -152,7 +152,8 @@ def stop(any_brento=False):
         try:
             os.kill(pid, signal.SIGTERM)
         except OSError:
-            return False
+            # It may have ended by itself in this moment. What counts is whether it still holds the port.
+            pass
         gone = until(lambda: listener() != pid, 8)
     end_helpers()
     return gone

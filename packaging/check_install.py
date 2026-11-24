@@ -125,12 +125,9 @@ def down():
     check(not address.whose(), "Brento no longer answers")
     for path in [BASE / "app" / "server.py", PYTHON] + SHORTCUTS:
         check(not path.exists(), "gone: %s" % path)
-    if WINDOWS:
-        check(not BASE.exists(), "gone: %s" % BASE)
-        check(not autostart(), "gone: the start at sign-in")
-    else:
-        check(not BASE.exists(), "gone: %s" % BASE)
-        check("state = running" not in autostart(), "gone: the start at sign-in")
+    left = sorted(str(p) for p in BASE.rglob("*") if p.is_file())[:8] if BASE.exists() else []
+    check(not BASE.exists(), "gone: %s %s" % (BASE, left or ""))
+    check(not autostart() if WINDOWS else "state = running" not in autostart(), "gone: the start at sign-in")
     check((HOME / ".brento").is_dir(), "the settings folder stays")
 
 

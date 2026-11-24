@@ -192,6 +192,13 @@ class Launcher(unittest.TestCase):
                 launcher.stop(any_brento=True)
                 kill.assert_not_called()
 
+    def test_a_brento_that_ended_by_itself_counts_as_stopped(self):
+        seen = iter([77, 0, 0])
+        with mock.patch.object(launcher, "agent", return_value=None), mock.patch.object(launcher, "listener", side_effect=lambda: next(seen)),                 mock.patch.object(launcher, "ours", return_value=True), mock.patch.object(launcher, "end_helpers"),                 mock.patch.object(launcher.os, "kill", side_effect=ProcessLookupError):
+            self.assertTrue(launcher.stop())
+        with mock.patch.object(launcher, "agent", return_value=None), mock.patch.object(launcher, "listener", return_value=77),                 mock.patch.object(launcher, "ours", return_value=True), mock.patch.object(launcher, "end_helpers"),                 mock.patch.object(launcher, "until", side_effect=lambda check, seconds: check()),                 mock.patch.object(launcher.os, "kill", side_effect=PermissionError):
+            self.assertFalse(launcher.stop())
+
     def test_another_persons_brento_is_never_opened_as_ones_own(self):
         with mock.patch.object(launcher, "agent", return_value=None), mock.patch.object(address, "whose", return_value="other"), \
                 mock.patch.object(launcher, "until", return_value=False), mock.patch.object(launcher, "spawn") as spawn:
@@ -341,6 +348,8 @@ class Contents(unittest.TestCase):
         self.assertIn("PrivilegesRequired=lowest", text)
         self.assertIn("uninsdeletevalue", text)
         self.assertIn('--stop"; RunOnceId', text)
+        # Python writes compiled files that the uninstaller does not know of.
+        self.assertIn('Type: filesandordirs; Name: "{app}\\python"', text[text.index("[UninstallDelete]"):])
 
     def test_shell_scripts_have_unix_line_endings(self):
         for rel in ("install.sh", "packaging/mac/postinstall", "Install Brento.command"):

@@ -587,7 +587,8 @@ class Handler(BaseHTTPRequestHandler):
         url = urlsplit(self.path)
         if not self.gate(url):
             return
-        if url.path.startswith("/api/") and url.path not in PLAIN_GETS and self.headers.get("X-Leitstand") != "1":
+        # Not asked of a phone: its short list of routes does nothing on the computer, and an older page may be open there.
+        if url.path.startswith("/api/") and url.path not in PLAIN_GETS and not self.phone and self.headers.get("X-Leitstand") != "1":
             self.send_json({"error": "cross-site request refused"}, 403)
             return
         if url.path in STATIC:

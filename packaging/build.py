@@ -47,7 +47,7 @@ what Brento does not use:
 Python {python}          https://www.python.org/             license: python/{python_license}
 {more}GitHub CLI {gh}        https://cli.github.com/             license: app/bin/LICENSE-gh.txt
 Photos on the cards    Wikimedia Commons                   authors and licenses: app/web/photos/CREDITS.md
-Time zone names        https://cldr.unicode.org/           Unicode License V3, https://www.unicode.org/license.txt
+Time zone names        https://cldr.unicode.org/           license: licenses/LICENSE.unicode.txt
 
 Brento itself: app/LICENSE
 """
@@ -155,7 +155,7 @@ def mac_runtime(chip, files):
     notice = THIRD_PARTY.format(python=RUNTIMES["python-mac-" + chip]["version"], gh=RUNTIMES["gh-mac-" + chip]["version"],
                                 python_license="lib/%s/LICENSE.txt" % stdlib, more=MORE_MAC)
     entries.append(("THIRD-PARTY.txt", 0o644, notice.encode("utf-8"), ""))
-    for path in sorted((HERE / "mac" / "licenses").glob("*.txt")):
+    for path in sorted((HERE / "mac" / "licenses").glob("*.txt")) + sorted((HERE / "licenses").glob("*.txt")):
         entries.append(("licenses/" + path.name, 0o644, path.read_bytes().replace(b"\r\n", b"\n"), ""))
     return targz(entries), sum(len(e[2]) for e in entries if e[2])
 
@@ -240,6 +240,7 @@ def stage_windows(stage):
     notice = THIRD_PARTY.format(python=RUNTIMES["python-windows-x64"]["version"], gh=RUNTIMES["gh-windows-x64"]["version"],
                                 python_license="LICENSE.txt", more=MORE_WINDOWS.format(tzdata=RUNTIMES["tzdata"]["version"]))
     (stage / "THIRD-PARTY.txt").write_text(notice, encoding="utf-8")
+    shutil.copytree(str(HERE / "licenses"), str(stage / "licenses"))
     shutil.copyfile(str(HERE / "windows" / "brento.ico"), str(stage / "brento.ico"))
     return ver
 

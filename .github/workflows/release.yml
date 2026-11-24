@@ -138,6 +138,9 @@ jobs:
           python3 -m venv "$RUNNER_TEMP/walk"
           "$RUNNER_TEMP/walk/bin/pip" -q install selenium==4.51.0
           sudo safaridriver --enable || true
+          # Its automation cannot take over the Safari the installer has opened.
+          pkill -x Safari || true
+          sleep 5
           "$RUNNER_TEMP/walk/bin/python" packaging/walk_setup.py safari pictures
       - name: Update by installing again
         run: |
