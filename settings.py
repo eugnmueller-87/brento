@@ -31,7 +31,7 @@ SOURCES = [
               "Home, with their join link. Repeating appointments are left out."},
     {"id": "board", "label": "GitHub Project board", "group": "Schedule", "new": True,
      "about": "Cards in the lanes HIGH, MID and LOW. A HIGH card with a date inside a week reaches Home."},
-    {"id": "ask", "label": "Ask box (Claude Code)", "group": "Assistant", "vault": True, "new": True,
+    {"id": "ask", "label": "Ask box (Claude Code)", "group": "Assistant", "vault": True, "new": False,
      "about": "Questions about your notes, answered by the claude program on this computer under your own "
               "Claude login. Brento never sees or stores that login."},
     {"id": "openItems", "label": "Open matters table", "group": "Notes with a fixed shape", "vault": True, "new": False,
@@ -115,6 +115,8 @@ def normalize(data, saved=False):
             raise ValueError("That notes folder does not exist: %s" % vault)
     out["vault"] = vault
     out["privacy"] = "required" if data.get("privacy") == "required" else "optional"
+    # Off by itself where other people have an account on this computer, see address.Browsers.
+    out["keepBrowsers"] = data.get("keepBrowsers") is True
     skip = data.get("skip") if isinstance(data.get("skip"), list) else OLD_SKIP
     out["skip"] = [name for name in (str(s).strip() for s in skip) if name and len(name) <= 80 and not re.search(r"[\\/]", name)][:30]
     given = data.get("sources") or {}

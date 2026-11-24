@@ -10,6 +10,9 @@ import json
 import os
 import re
 import secrets
+import socket
+import struct
+import sys
 import threading
 import time
 import urllib.error
@@ -23,8 +26,11 @@ FIRST = 8770
 PORTS = range(FIRST, FIRST + 60, 2)
 KEY_HEADER = "X-Brento-Key"
 SIGN_HEADER = "X-Brento-Sign"
-# A signed request is good for this long, so one that was overheard is soon worth nothing.
-SIGN_SECONDS = 300
+ANSWER_HEADER = "X-Brento-Answer"
+RUN_HEADER = "X-Brento-Run"
+# A signature counts for one run of the server only. The time is a last fence, wide enough that a clock which was put
+# right locks nobody out.
+SIGN_SECONDS = 24 * 3600
 MAX_BROWSERS = 40
 MAX_ANSWER = 256 * 1024
 NONCE = re.compile(r"^[A-Za-z0-9_-]{16,64}$")
@@ -98,43 +104,116 @@ def private_file(path, text):
         out.write(text)
 
 
+def shared():
+    """Whether other people have an account on this computer as well. When that cannot be told, yes."""
+    try:
+        if sys.platform == "win32":
+            import winreg
+            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList") as listed:
+                names = [winreg.EnumKey(listed, n) for n in range(winreg.QueryInfoKey(listed)[0])]
+            return sum(1 for name in names if re.match(r"^S-1-(?:5-21|12-1)-[\d-]+$", name)) != 1
+        people, first = {os.getuid()}, 500 if sys.platform == "darwin" else 1000
+        with os.scandir("/Users" if sys.platform == "darwin" else "/home") as homes:
+            people.update(uid for uid in (home.stat(follow_symlinks=False).st_uid for home in homes) if uid >= first)
+        return len(people) != 1
+    except OSError:
+        return True
+
+
+def mac(word, text):
+    return hmac.new(word.encode("utf-8"), text.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
 class Browsers:
     """The browsers that were let in. Each got a word of its own, once, for a ticket, and signs its requests with it
     (web/sign.js). The word is never sent again, and no cookie is used, because a browser hands a cookie to every program
-    on 127.0.0.1, whatever its port."""
+    on 127.0.0.1, whatever its port. A word counts only at the address it was given for, a signature only for one run of
+    the server, and the answer is signed too.
 
-    def __init__(self, folder):
+    Where other people have an account as well, a word ends with the run that gave it. While Brento is not running, a
+    program of theirs can take its address, and a page at the same address can read what the browser keeps for it. What all
+    this cannot stop is said in docs/BLUEPRINT.md."""
+
+    def __init__(self, folder, keep=None):
         self.path, self.lock = Path(folder) / "browsers.json", threading.Lock()
+        self.keep, self.run, self.words = (not shared()) if keep is None else keep, secrets.token_hex(8), {}
         try:
-            listed = json.loads(self.path.read_text(encoding="utf-8"))["browsers"]
-            self.words = {str(b["id"]): str(b["word"]) for b in listed}
+            if self.keep:
+                listed = json.loads(self.path.read_text(encoding="utf-8"))["browsers"]
+                self.words = {str(b["id"]): (str(b["word"]), str(b["host"])) for b in listed}
+            else:
+                self.path.unlink()
         except (OSError, ValueError, KeyError, TypeError):
-            self.words = {}
+            pass
 
-    def add(self):
+    def write(self, words):
+        self.words = words
+        if self.keep:
+            private_file(self.path, json.dumps({"browsers": [{"id": i, "word": w, "host": h} for i, (w, h) in words.items()]}, indent=1))
+
+    def hold(self, keep):
+        """Whether the words outlast a restart. The owner can decide that in the settings."""
         with self.lock:
+            if keep == self.keep:
+                return
+            self.keep = keep
+            if keep:
+                self.write(self.words)
+                return
+            try:
+                self.path.unlink()
+            except OSError:
+                pass
+
+    def add(self, host, old=""):
+        """A word for one browser. The one it had before is worth nothing from then on."""
+        with self.lock:
+            words = {i: w for i, w in self.words.items() if i != old}
             name, word = secrets.token_hex(6), secrets.token_hex(32)
-            self.words[name] = word
-            while len(self.words) > MAX_BROWSERS:
-                self.words.pop(next(iter(self.words)))
-            private_file(self.path, json.dumps({"browsers": [{"id": i, "word": w} for i, w in self.words.items()]}, indent=1))
-            return {"id": name, "word": word}
+            words[name] = (word, host)
+            while len(words) > MAX_BROWSERS:
+                words.pop(next(iter(words)))
+            self.write(words)
+            return {"id": name, "word": word, "run": self.run}
+
+    def forget(self):
+        with self.lock:
+            if self.words:
+                self.write({})
 
     def signed(self, header, method, path, host, now=None):
-        """The hash of the body a request was signed with ('-' for none), or None when the signature does not hold. The
-        address is part of it, so what another port overhears is of no use here."""
+        """The hash of the body a request was signed with ('-' for none) and the signature of the answer, or None when the
+        request's own signature does not hold. The address is part of it, so what another port overhears is of no use
+        here, and so is the run, so what was overheard before a restart is not either."""
         parts = (header or "").split(".")
-        if len(parts) != 4:
+        if len(parts) != 5:
             return None
-        name, stamp, body, given = parts
-        word = self.words.get(name)
-        if not word or not re.match(r"^\d{10,15}$", stamp):
+        name, stamp, body, run, given = parts
+        word, at = self.words.get(name, ("", ""))
+        if not word or at != host or run != self.run or not re.match(r"^\d{10,15}$", stamp):
             return None
         if abs((time.time() if now is None else now) * 1000 - int(stamp)) > SIGN_SECONDS * 1000:
             return None
-        text = "\n".join((method, path, host, stamp, body))
-        right = hmac.new(word.encode("utf-8"), text.encode("utf-8"), hashlib.sha256).hexdigest()
-        return body if hmac.compare_digest(given.encode("utf-8"), right.encode("utf-8")) else None
+        right = mac(word, "\n".join((method, path, host, stamp, body, run)))
+        if not hmac.compare_digest(given.encode("utf-8"), right.encode("utf-8")):
+            return None
+        return body, mac(word, "answer\n" + right)
+
+
+def peer_uid(client, here):
+    """Whose program sits at the other end of a connection on this computer. Linux says it, elsewhere it is None."""
+    def column(end):
+        return "%08X:%04X" % (struct.unpack("=I", socket.inet_aton(end[0]))[0], end[1])
+    try:
+        ends = column(client), column(here)
+        with open("/proc/net/tcp", encoding="ascii") as table:
+            for line in table:
+                row = line.split()
+                if len(row) > 7 and (row[1], row[2]) == ends:
+                    return int(row[7])
+    except (OSError, ValueError):
+        pass
+    return None
 
 
 def ask(path, number, secret="", data=None, timeout=2.0):
@@ -179,7 +258,8 @@ def whose(number=0, timeout=2.0):
         return ""
     if status == 200:
         mine = key()
-        good = mine and hmac.compare_digest(str(answer.get("proof") or ""), proof(mine, number, nonce))
+        given = str(answer.get("proof") or "").encode("utf-8", "replace")
+        good = mine and hmac.compare_digest(given, proof(mine, number, nonce).encode("ascii"))
         return "mine" if good else "other"
     return "older"
 

@@ -310,19 +310,23 @@ class Library:
                     continue
                 if suffix != ".md":
                     continue
+                old = self.notes.get(rel)
                 try:
-                    mtime = full.stat().st_mtime
+                    stat = full.stat()
                 except OSError:
                     continue
-                old = self.notes.get(rel)
-                if old and old["mtime"] == mtime:
+                mtime, away = stat.st_mtime, sources.elsewhere(stat)
+                if old and old["mtime"] == mtime and (away or not old["away"]):
                     notes[rel] = old
                     continue
                 try:
-                    raw = full.read_text(encoding="utf-8", errors="replace")
+                    # A note that lies only in a cloud is listed by its name, and fetched when it is opened.
+                    raw = "" if away else full.read_text(encoding="utf-8", errors="replace")
                 except OSError:
+                    if old:
+                        notes[rel] = old
                     continue
-                notes[rel] = self._load(rel, raw, mtime)
+                notes[rel] = dict(self._load(rel, raw, mtime), away=away)
             by_title, by_path = {}, {}
             for rel in sorted(notes, key=lambda r: (r.count("/"), len(r))):
                 by_path[rel[:-3].lower()] = rel
@@ -394,6 +398,15 @@ class Library:
         note = self.notes.get(path)
         if note is None:
             return None
+        if note["away"]:
+            sources.cloud_files(True)
+            try:
+                raw = (self.vault / path).read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                raw = "This note is not on this computer, and its cloud does not deliver it at the moment."
+            else:
+                self.notes[path] = dict(self._load(path, raw, note["mtime"]), away=False)
+            note = dict(self._load(path, raw, note["mtime"]), away=False)
         body, stamp = note["body"], note["mtime"]
         props, hidden = note["props"], note["hidden"]
         if path == BRIEF_PATH:

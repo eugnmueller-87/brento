@@ -4,30 +4,48 @@
 
   // This browser's own word. It is kept here and never sent: every question to Brento is signed with it (sign.js). On a
   // phone there is none, a paired phone carries a cookie instead.
-  let WORD = null;
+  let WORD = null, RUN = '';
   function readWord() { try { const w = JSON.parse(localStorage.getItem(BrentoSign.KEY)); WORD = w && w.id && w.word ? w : null; } catch (e) { WORD = null; } }
   readWord();
-  const fetch = (url, options) => {
+  const fetch = async (url, options) => {
     const o = Object.assign({}, options), at = new URL(url, location.href);
-    const headers = Object.assign({ 'X-Leitstand': '1' }, o.headers);
-    if (WORD && at.pathname.startsWith('/api/')) headers['X-Brento-Sign'] = BrentoSign.header(WORD, (o.method || 'GET').toUpperCase(), at.pathname + at.search, location.host, o.body || '', Date.now());
-    return window.fetch(url, Object.assign(o, { headers }));
+    for (let turn = 0; ; turn += 1) {
+      const headers = Object.assign({ 'X-Leitstand': '1' }, o.headers), word = WORD, used = RUN;
+      if (!word || !at.pathname.startsWith('/api/')) return window.fetch(url, Object.assign({}, o, { headers }));
+      const head = BrentoSign.header(word, used, (o.method || 'GET').toUpperCase(), at.pathname + at.search, location.host, o.body || '', Date.now());
+      headers['X-Brento-Sign'] = head;
+      const r = await window.fetch(url, Object.assign({}, o, { headers }));
+      if (r.headers.get('X-Brento-Answer') === BrentoSign.answer(word, head)) return r;
+      // Brento was started anew, or another window of this browser came in again: the same once more, signed for that.
+      const run = r.headers.get('X-Brento-Run');
+      if (r.status === 401 && turn < 3) {
+        if (run && run !== used) { RUN = run; continue; }
+        if (WORD === word) readWord();
+        if (WORD && WORD.word !== word.word) continue;
+      }
+      if (r.status === 401) return r;
+      throw new Error('Something else answers at this address. Open Brento with its icon.');
+    }
   };
-  // The icon's ticket, or the key from another computer, traded for a word. The address is cleaned first.
+  // The icon's ticket, or the key from another computer, traded for a word. The address is cleaned first, and the word
+  // this browser had before ends with it.
   async function enter() {
     const q = new URLSearchParams(location.search), given = q.get('ticket') ? { ticket: q.get('ticket') } : q.get('key') ? { key: q.get('key') } : null;
     if (!given) return;
-    history.replaceState(null, '', location.pathname + location.hash);
+    q.delete('ticket'); q.delete('key');
+    history.replaceState(null, '', location.pathname + (q.toString() ? '?' + q : '') + location.hash);
     try {
-      if (WORD && (await fetch('/api/tools')).ok) return;
+      if (WORD) given.old = WORD.id;
       const r = await window.fetch('/api/enter', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Leitstand': '1' }, body: JSON.stringify(given) });
       if (!r.ok) return;
-      WORD = await r.json();
+      const word = await r.json();
+      RUN = word.run || '';
+      WORD = { id: word.id, word: word.word };
       try { localStorage.setItem(BrentoSign.KEY, JSON.stringify(WORD)); } catch (e) { /* then it holds for this window only */ }
     } catch (e) { /* the page says what it cannot read */ }
   }
-  // Another window of this browser was let in, or lost its word.
-  window.addEventListener('storage', (e) => { if (e.key === BrentoSign.KEY && e.newValue) location.reload(); });
+  // Another window of this browser came in, or the word was deleted.
+  window.addEventListener('storage', (e) => { if (e.key === BrentoSign.KEY || e.key === null) { readWord(); load(); loadTools(); } });
   const $ = (s, r = document) => r.querySelector(s);
   const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
   const esc = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -641,9 +659,19 @@
   const lostNow = () => unread().filter((s) => s.note !== 'still loading');
   // With nothing to read, a calm screen would claim something Brento cannot know.
   const nothingYet = () => !S.calendarConnected && !S.sources.some((s) => s.id !== 'calendar');
+  // Only what Brento has looked at.
+  function quietWhy() {
+    const has = (id) => S.sources.some((s) => s.id === id), parts = [];
+    if (S.calendarConnected) parts.push('no meeting');
+    if (has('tasks') || has('open-items')) parts.push('no deadline');
+    if (has('board')) parts.push('no HIGH or MID card to do');
+    const text = parts.length > 1 ? parts.slice(0, -1).join(', ') + ' and ' + parts[parts.length - 1] : parts[0] || 'nothing with a date';
+    return text.charAt(0).toUpperCase() + text.slice(1) + '.';
+  }
   function quietCard() {
-    if (nothingYet()) return { id: 'quiet', kind: 'pipeline', level: 'calm', eyebrow: 'Start here', tag: '', title: 'Nothing is connected yet',
-      body: S.phone ? 'Connect your calendar, your notes or your board in Brento on the computer.' : 'Connect your calendar, your notes or your board, and this page tells you what needs you.',
+    const notes = !S.pagesOff.includes('library'), missing = 'Connect your calendar, your ' + (notes ? 'tasks' : 'notes') + ' or your board';
+    if (nothingYet()) return { id: 'quiet', kind: 'pipeline', level: 'calm', eyebrow: 'Start here', tag: '', title: notes ? 'No dates are connected yet' : 'Nothing is connected yet',
+      body: missing + (S.phone ? ' in Brento on the computer.' : ', and this page tells you what needs you.'),
       why: 'Until then there is nothing Brento could read.', source: 'Sources', sourceState: 'unknown', sourceAge: 'none yet', route: S.phone ? 'today' : 'settings', heat: 0, fog: 0.08 };
     const lost = unread();
     if (lost.length || S.vaultProblem) {
@@ -655,7 +683,7 @@
     const dated = S.deadlines.filter((d) => d.due >= S.today).sort((a, b) => a.due.localeCompare(b.due));
     return { id: 'quiet', kind: 'pipeline', level: 'calm', eyebrow: 'All quiet', tag: '', title: 'Nothing needs preparing',
       body: dated.length ? 'Next date: ' + dated[0].name + ', ' + weekdayOf(dated[0].due) + ' ' + dayMonth(dated[0].due) : '',
-      why: 'No deadline, no meeting, and no HIGH or MID card to do.', source: 'Today', sourceState: 'fresh', sourceAge: 'live', route: 'today', heat: 0, fog: 0.08 };
+      why: quietWhy(), source: 'Today', sourceState: 'fresh', sourceAge: 'live', route: 'today', heat: 0, fog: 0.08 };
   }
   // A tool whose name appears in the title, such as a client's deck for a call with that client.
   function relatedTool(c) {
@@ -1559,7 +1587,9 @@
     const step = (n, title, pill, sub, body) => '<section class="setup-step"><h3><span class="num">' + n + '</span>' + esc(title) + (pill || '') + '</h3>' + (sub ? '<p>' + esc(sub) + '</p>' : '') + body + '</section>';
     const listed = SETUP.vaults.some((v) => v.path === P.vault);
     let html = step('1', 'You', '', 'Your first name. Brento uses it to know which rows in an Owner column are yours.',
-      '<div class="setup-field"><label for="su-name">First name</label><input id="su-name" maxlength="40" value="' + esc(P.name) + '" autocomplete="given-name"></div>');
+      '<div class="setup-field"><label for="su-name">First name</label><input id="su-name" maxlength="40" value="' + esc(P.name) + '" autocomplete="given-name"></div>'
+      + (SETUP.shared ? '<label class="wz-check"><input type="checkbox" id="su-keep"' + (P.keepBrowsers ? ' checked' : '') + '> Keep this browser let in after a restart</label>'
+        + '<p class="note">This computer has more than one account. So after each start Brento opens with its icon first, and bookmarks work from then on. Tick this only if you trust the others, and the programs that run under their accounts.</p>' : ''));
     html += step('2', 'Your Obsidian vault', '', 'Brento reads your notes from this folder and never changes them. These are the vaults Obsidian itself knows on this computer.',
       '<div class="setup-grid">' + SETUP.vaults.map((v) => setupOpt('radio', 'su-vault', v.path, P.vault === v.path || (!P.vault && SETUP.needed && v.open), v.name, v.path + (v.open ? ' · open in Obsidian' : ''))).join('')
       + setupOpt('radio', 'su-vault', '__other', !!P.vault && !listed, 'Another folder', 'Type its full path below')
@@ -1639,7 +1669,7 @@
       $('#su-error').textContent = '';
       try {
         const r = await fetch('/api/setup', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Leitstand': '1' },
-          body: JSON.stringify({ profile: { name: $('#su-name').value.trim(), vault, sources: srcs, board, tasks: { home: $('#su-taskhome').value },
+          body: JSON.stringify({ profile: { name: $('#su-name').value.trim(), vault, sources: srcs, board, tasks: { home: $('#su-taskhome').value }, keepBrowsers: SETUP.shared ? $('#su-keep').checked : !!P.keepBrowsers,
             slack: { digest: $('#sl-digest').value || '', remind: Number($('#sl-remind').value), alerts: $('#sl-alerts').checked, sources: $$('input[name="sl-src"]:checked').map((x) => x.value) } }, tools: chosen }) });
         const j = await r.json();
         if (!r.ok) throw new Error(j.error);
@@ -1710,7 +1740,8 @@
   function wzFound() {
     if (!WZ.vault) return '';
     if (!WZ.stats) return '<p class="wz-lead">Counting notes…</p>';
-    return WZ.stats.error ? wzWarn(esc(WZ.stats.error)) : wzOk('Found ' + WZ.stats.notes.toLocaleString('en-GB') + ' notes and ' + WZ.stats.tasks + (WZ.stats.tasks === 1 ? ' task' : ' tasks') + ' with a date.');
+    return WZ.stats.error ? wzWarn(esc(WZ.stats.error)) : wzOk('Found ' + WZ.stats.notes.toLocaleString('en-GB') + ' notes' + (WZ.stats.tasks === null ? '. Brento looks for tasks in them while you go on.' : ' and ' + WZ.stats.tasks + (WZ.stats.tasks === 1 ? ' task' : ' tasks') + ' with a date.'))
+      + (WZ.stats.missing ? '<p class="note">' + esc(WZ.stats.missing.charAt(0).toUpperCase() + WZ.stats.missing.slice(1)) + '. Brento tries again by itself.</p>' : '');
   }
   function paintFound() { const box = $('#wz-found'); if (box) box.innerHTML = wzFound(); }
   // Windows puts quotes around a path that was copied.
@@ -1750,32 +1781,30 @@
     }).catch((err) => { WZ.msg = err.message; }).finally(() => { WZ.boardBusy = ''; paintWizard(); });
   }
   // The Ask box, only ever on the owner's click: what it reads for an answer goes to Claude.
-  function wzAskOn(d, sources) {
-    const src = JSON.parse(JSON.stringify(sources));
-    src.ask = { on: true };
-    return post('/api/setup', { profile: { sources: src } }).then((j) => {
+  function wzAskOn() {
+    return post('/api/setup', { profile: { sources: { ask: { on: true } } } }).then((j) => {
       WZ.askOn = !!(j.profile.sources.ask || {}).on;
-      WZ.sources = j.profile.sources;
       ask.status = null;
       stateText = '';
       return load();
-    }).then(paintWizard).catch((err) => toast(err.message));
+    }).then(wzDonePaint).catch((err) => toast(err.message));
   }
+  function wzDonePaint() { if (WZ_STEPS[WZ.step] === 'done') paintWizard(); }
   // The same polling for the Claude sign-in. It was started for the Ask box, so that is switched on once it is done, also
   // when the owner has gone on to another page in the meantime.
   function wzPollClaude() {
     clearInterval(WZ.claudeTimer);
-    const d = WZ.data, vault = WZ.vault, timer = setInterval(() => {
+    const timer = setInterval(() => {
       fetch('/api/wizard/claude').then((r) => r.json()).then((c) => {
         if (WZ.claudeTimer !== timer) return;
-        d.claude = c;
+        if (WZ.data) WZ.data.claude = c;
         const s = c.signin || {};
         if (!c.ready && s.running) return;
         clearInterval(timer);
         WZ.claudeTimer = 0;
-        WZ.msg = c.ready ? '' : s.error || '';
-        if (c.ready && vault) wzAskOn(d, WZ.sources || d.profile.sources);
-        else paintWizard();
+        if (WZ_STEPS[WZ.step] === 'done') WZ.msg = c.ready ? '' : s.error || '';
+        if (c.ready) wzAskOn();
+        else wzDonePaint();
       }).catch(() => {});
     }, 4000);
     WZ.claudeTimer = timer;
@@ -1812,7 +1841,7 @@
       + (d.platform === 'win32' ? '<p class="note">In the Explorer, right-click the folder, choose <b>Copy as path</b> and paste it here. On Windows 10 hold Shift while you right-click.</p>'
         : d.platform === 'darwin' ? '<p class="note">In the Finder, hold <b>Control</b> and click the folder, then hold <b>Option</b> as well, choose <b>Copy … as Pathname</b> and paste it here.</p>' : '');
     html += '<div id="wz-found">' + wzFound() + '</div>';
-    if (d.platform === 'darwin' && /\/(Documents|Desktop|Downloads|Library\/(Mobile Documents|CloudStorage))(\/|$)/.test(WZ.vault)) html += '<p class="note">macOS may ask whether Brento may read this folder. Click Allow.</p>';
+    if (d.platform === 'darwin' && /\/(Documents|Desktop|Downloads|Library\/(Mobile Documents|CloudStorage))(\/|$)/.test(WZ.vault)) html += '<p class="note">macOS may ask whether Brento may read this folder. Click Allow, or OK.</p>';
     return html;
   }
   // Said before the click: GitHub's own page asks for more than Brento uses, and in another program's name.
@@ -1930,14 +1959,14 @@
   }
   // Someone who has finished the setup came for one page. Only that is saved, everything else stays as they left it.
   function wzSaveOne(name) {
-    const p = WZ.data.profile, sources = wzSources(), profile = {};
+    const p = WZ.data.profile, profile = {}, on = (value) => ({ on: value });
     if (name === 'welcome') profile.name = WZ.name;
     if (name === 'notes' && WZ.vault !== p.vault) {
       profile.vault = WZ.vault;
-      if (!p.vault || !WZ.vault) { sources.library.on = sources.tasks.on = !!WZ.vault; profile.sources = sources; }
+      if (!p.vault || !WZ.vault) profile.sources = { library: on(!!WZ.vault), tasks: on(!!WZ.vault) };
     }
-    if (name === 'board' && WZ.board) { profile.board = wzBoardProfile(); sources.board.on = true; profile.sources = sources; }
-    if (name === 'calendar' && WZ.calOk && !sources.calendar.on) { sources.calendar.on = true; profile.sources = sources; }
+    if (name === 'board' && WZ.board) { profile.board = wzBoardProfile(); profile.sources = { board: on(true) }; }
+    if (name === 'calendar' && WZ.calOk) profile.sources = { calendar: on(true) };
     if (name === 'slack') profile.slack = WZ.slack;
     return post('/api/setup', { profile, tools: name === 'tools' ? Array.from(WZ.tools || []) : [] });
   }
@@ -1957,8 +1986,9 @@
     else if (name === 'slack') { body = wzSlack(); skip = !WZ.slackOn; }
     else if (name === 'tools') { body = wzTools(); next = 'Finish'; }
     else body = wzDone();
-    const nav = one ? '<p class="tools-error" id="wz-error" role="alert"></p><div class="wz-nav"><button class="btn" type="button" id="wz-close">Cancel</button><button class="btn primary" type="button" id="wz-one">Done</button></div>' : name === 'done' ? '<div class="wz-nav"><span></span><button class="btn primary" type="button" id="wz-home">Open Brento</button></div>'
-      : '<p class="tools-error" id="wz-error" role="alert"></p><div class="wz-nav">' + (WZ.step ? '<button class="btn" type="button" id="wz-back">Back</button>' : '<span></span>') + '<span class="wz-right">'
+    const error = '<p class="tools-error" id="wz-error" role="alert"></p>';
+    const nav = one ? '<div class="wz-nav">' + error + '<button class="btn" type="button" id="wz-close">Cancel</button><button class="btn primary" type="button" id="wz-one">Done</button></div>' : name === 'done' ? '<div class="wz-nav"><span></span><button class="btn primary" type="button" id="wz-home">Open Brento</button></div>'
+      : '<div class="wz-nav">' + error + (WZ.step ? '<button class="btn" type="button" id="wz-back">Back</button>' : '<span></span>') + '<span class="wz-right">'
         + (skip ? '<button class="link-btn" type="button" id="wz-skip">Skip for now</button>' : '') + '<button class="btn primary" type="button" id="wz-next">' + next + '</button></span></div>';
     box.innerHTML = '<section class="wz-card">' + dots + body + nav + '</section>';
     bindWizard(name);
@@ -1969,8 +1999,16 @@
     on('#wz-skip', () => wzGo(1));
     on('#wz-home', () => { WZ.over = true; stateText = ''; load(); navigate('home'); });
     on('#wz-close', () => { WZ.over = true; stateText = ''; load(); navigate('home'); });
-    on('#wz-ask', () => wzAskOn(WZ.data, WZ.sources || WZ.data.profile.sources));
+    on('#wz-ask', wzAskOn);
+    // A link that was pasted and not connected yet: the button does that first, and the page shows what came of it.
+    const pending = () => {
+      const field = name === 'calendar' ? $('#wz-cal') : name === 'slack' ? $('#wz-slack') : null;
+      if (!field || !field.value.trim()) return false;
+      $(name === 'calendar' ? '#wz-calgo' : '#wz-slackgo').click();
+      return true;
+    };
     on('#wz-one', async () => {
+      if (WZ.boardBusy || pending()) return;
       if (name === 'notes' && WZ.other) WZ.vault = typedPath($('#wz-path'));
       const b = $('#wz-one'); b.disabled = true;
       try { await wzSaveOne(name); WZ.over = true; stateText = ''; await load(); loadTools(true); navigate('home'); }
@@ -2021,9 +2059,16 @@
         const found = typed ? seen || await vaultStats() : null;
         if (route !== 'setup' || WZ_STEPS[WZ.step] !== name || (found && found.error)) return undefined;
       }
+      if (pending()) return undefined;
       if (name !== 'tools') return wzGo(1);
+      if (WZ.boardBusy) { $('#wz-error').textContent = WZ.boardBusy + ' This takes a moment.'; return undefined; }
       const b = $('#wz-next'); b.disabled = true; b.textContent = 'Saving…';
-      try { await wzSave(); stateText = ''; await load(); loadTools(true); wzGo(1); }
+      try {
+        await wzSave(); stateText = ''; await load(); loadTools(true);
+        // From now on a reload keeps the last page.
+        routeId = '6'; history.replaceState(null, '', '#setup/6');
+        wzGo(1);
+      }
       catch (err) { $('#wz-error').textContent = err.message; b.disabled = false; b.textContent = 'Finish'; }
     });
   }
@@ -2107,26 +2152,38 @@
   }
   window.addEventListener('hashchange', onRoute);
 
-  /* Not let in: the frame without anything in it, and the way in. */
+  /* Not let in: the frame without anything in it, and the way in. After the next good answer the page starts over. */
   function showLocked() {
     document.documentElement.classList.add('locked');
     document.title = 'Brento';
+    const win = /Windows/.test(navigator.userAgent), mac = /Mac OS/.test(navigator.userAgent);
     $('#view').innerHTML = '<div class="page"><div class="wz"><section class="wz-card"><h2>Open Brento with its icon</h2>'
       + '<p class="wz-lead">Brento opens only for the person it belongs to, and this window has not been let in.</p>'
-      + '<p class="wz-lead">On Windows press the <b>Windows key</b>, on a Mac <b>Cmd</b> and <b>Space</b>. Type <b>Brento</b> and press <b>Enter</b>. Brento opens in a window of its own. You can close this one.</p></section></div></div>';
+      + '<p class="wz-lead">' + (win ? 'Press the <b>Windows key</b>, type <b>Brento</b> and press <b>Enter</b>. Brento then opens in a window of its own.'
+        : mac ? 'Press <b>Cmd</b> and <b>Space</b>, type <b>Brento</b> and press <b>Return</b>. Brento then opens in your browser.'
+        : 'Open Brento from your programs, or type <b>brento</b> in a terminal. It then opens in your browser.') + '</p></section></div></div>';
   }
 
   /* Data */
-  let webVersion = null;
+  let webVersion = null, lookAgain = 0, looked = 0;
   async function load() {
     try {
       const res = await fetch('/api/state');
-      // A phone that is no longer paired: the page that comes back asks for the code.
-      if (res.status === 401) { location.reload(); return; }
+      if (res.status === 401) {
+        const j = await res.json().catch(() => ({}));
+        if (j.locked) showLocked();
+        // A phone that is no longer paired: the page that comes back asks for the code.
+        else if (!WORD) location.reload();
+        return;
+      }
       if (!res.ok) throw new Error('HTTP ' + res.status);
       const text = await res.text();
-      if (JSON.parse(text).locked) { showLocked(); return; }
+      if (document.documentElement.classList.contains('locked')) { location.reload(); return; }
       const now = new Date();
+      // Something is still being read: look again soon, not only in a minute.
+      clearTimeout(lookAgain);
+      looked = (JSON.parse(text).sources || []).some((s) => s.note === 'still loading') ? looked + 1 : 0;
+      if (looked && looked < 20) lookAgain = setTimeout(load, 3000);
       $('#refresh').title = 'Refresh now (R). Last read ' + String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
       if (text === stateText) return;
       const first = !S;
@@ -2183,7 +2240,17 @@
   setInterval(tickClock, 5000);
   renderTop();
   renderDock();
+  // A bookmark of a page that lies among the notes. The address that opens it carries a seal, so ask for it and go there.
+  async function openVaultPage() {
+    try {
+      const r = await fetch('/api/library/seal' + location.search), j = await r.json();
+      if (r.ok) { location.replace(j.url); return; }
+      if (r.status === 401) { showLocked(); return; }
+      throw new Error(j.error);
+    } catch (err) { $('#view').innerHTML = '<div class="offline"><b>This page cannot be opened.</b><br>' + esc(err.message) + '</div>'; }
+  }
   enter().then(() => {
+    if (location.pathname !== '/') { openVaultPage(); return; }
     loadTools();
     load();
     setInterval(() => { load(); loadTools(); }, 60000);

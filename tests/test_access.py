@@ -1,8 +1,10 @@
 """Who gets in: the owner's key, the launcher's ticket, a second person on the same computer, and what a foreign page
 cannot do. Real servers on real sockets, on loopback only."""
+import contextlib
 import hashlib
 import hmac
 import http.client
+import io
 import json
 import os
 import re
@@ -47,12 +49,18 @@ class Home(unittest.TestCase):
         self.tmp.cleanup()
 
 
-def sign(word, method, path, host, body=b"", now=None):
+def sign(word, method, path, host, body=b"", now=None, run=None):
     """What web/sign.js does, so a test can sign for something else than it sends."""
     stamp = str(int((time.time() if now is None else now) * 1000))
     total = hashlib.sha256(body).hexdigest() if body else "-"
-    text = "\n".join((method, path, host, stamp, total))
-    return ".".join((word["id"], stamp, total, hmac.new(word["word"].encode(), text.encode(), hashlib.sha256).hexdigest()))
+    run = word["run"] if run is None else run
+    text = "\n".join((method, path, host, stamp, total, run))
+    return ".".join((word["id"], stamp, total, run, hmac.new(word["word"].encode(), text.encode(), hashlib.sha256).hexdigest()))
+
+
+def answer(word, head):
+    """What a page expects the answer to such a request to be signed with."""
+    return hmac.new(word["word"].encode(), ("answer\n" + head.split(".")[4]).encode(), hashlib.sha256).hexdigest()
 
 
 class Door(Home):
@@ -88,11 +96,14 @@ class Door(Home):
     def test_without_being_let_in_there_is_only_the_empty_frame(self):
         for path in ("/", "/app.js", "/sign.js", "/style.css"):
             self.assertEqual(self.call("GET", path)[0], 200, path)
+        # What a page of 0.1.0 that is still open gets, so that it loads the new one.
         status, _, body = self.call("GET", "/api/state")
         self.assertEqual((status, sorted(json.loads(body))), (200, ["locked", "webVersion"]))
-        for path in ("/api/setup", "/api/wizard", "/api/phone", "/api/tools", "/api/library", "/api/ask/status",
-                     "/api/wizard/vault?path=C%3A%5C", "/api/library/page?path=x.html", "/api/library/asset?path=x.png&s="):
-            self.assertEqual(self.call("GET", path, X_Leitstand="1")[0], 401, path)
+        for path in ("/api/state", "/api/setup", "/api/wizard", "/api/phone", "/api/tools", "/api/library", "/api/ask/status",
+                     "/api/wizard/vault?path=C%3A%5C", "/api/library/seal?path=x.html", "/api/library/asset?path=x.png&s="):
+            status, reply, body = self.call("GET", path, X_Leitstand="1")
+            self.assertEqual((status, json.loads(body)["locked"], reply.getheader("X-Brento-Run"), reply.getheader("X-Brento-Answer")),
+                             (401, True, self.app.browsers.run, None), path)
         for path in ("/api/ticket", "/api/setup", "/api/ask", "/api/phone", "/api/wizard/open"):
             self.assertEqual(self.call("POST", path, body=b"{}", X_Leitstand="1")[0], 401, path)
         for given in ({}, {"ticket": ""}, {"ticket": "x"}, {"key": ""}, {"key": "x"}, {"ticket": None, "key": ["x"]}):
@@ -108,12 +119,68 @@ class Door(Home):
         self.assertEqual(self.call("POST", "/api/enter", ticket, X_Leitstand="1")[0], 401)
         self.assertEqual(self.call("GET", "/api/tools", X_Leitstand="1", X_Brento_Sign=sign(word, "GET", "/api/tools", self.host))[0], 200)
         self.assertNotIn("locked", json.loads(self.call("GET", "/api/state", X_Leitstand="1", X_Brento_Sign=sign(word, "GET", "/api/state", self.host))[2]))
-        # Kept over a restart, readable for the owner only, and a second browser gets a word of its own.
-        again = address.Browsers(self.home)
-        self.assertEqual(again.signed(sign(word, "GET", "/x", "h"), "GET", "/x", "h"), "-")
-        self.assertNotEqual(self.let_in()["id"], word["id"])
+        # Where other people have an account, it ends with the run that gave it, and no file is left.
+        self.assertEqual(address.Browsers(self.home, keep=False).words, {})
+        self.assertFalse((self.home / "browsers.json").exists())
+        address.Browsers(self.home, keep=True).write(self.app.browsers.words)
+        # Elsewhere it is kept over a restart, for the address it was given at, and readable for the owner only. What was
+        # signed for the run before is worth nothing.
+        again = address.Browsers(self.home, keep=True)
+        self.assertNotEqual(again.run, word["run"])
+        self.assertIsNone(again.signed(sign(word, "GET", "/x", self.host), "GET", "/x", self.host))
+        head = sign(word, "GET", "/x", self.host, run=again.run)
+        self.assertEqual(again.signed(head, "GET", "/x", self.host), ("-", answer(word, head)))
+        self.assertIsNone(again.signed(sign(word, "GET", "/x", "127.0.0.1:8772", run=again.run), "GET", "/x", "127.0.0.1:8772"))
         if os.name == "posix":
             self.assertEqual((self.home / "browsers.json").stat().st_mode & 0o077, 0)
+        # Something else was found at that address: what a browser keeps for it opens nothing any more.
+        again.forget()
+        self.assertIsNone(again.signed(head, "GET", "/x", self.host))
+        self.assertEqual(address.Browsers(self.home, keep=True).words, {})
+
+    def test_whether_others_have_an_account_here(self):
+        self.assertIn(address.shared(), (True, False))
+        with mock.patch.object(address.os, "scandir", side_effect=OSError), mock.patch.dict(sys.modules, {"winreg": None}):
+            try:
+                self.assertTrue(address.shared())
+            except ImportError:
+                self.assertEqual(sys.platform, "win32")
+
+    def test_the_answer_shows_that_it_comes_from_brento(self):
+        word = self.let_in()
+        head = sign(word, "GET", "/api/tools", self.host)
+        self.assertEqual(self.call("GET", "/api/tools", X_Leitstand="1", X_Brento_Sign=head)[1].getheader("X-Brento-Answer"), answer(word, head))
+        # Also when the answer is a refusal, and never for what was not signed.
+        head = sign(word, "GET", "/api/nothing", self.host)
+        status, reply, _ = self.call("GET", "/api/nothing", X_Leitstand="1", X_Brento_Sign=head)
+        self.assertEqual((status, reply.getheader("X-Brento-Answer")), (404, answer(word, head)))
+        self.assertIsNone(self.call("GET", "/app.js")[1].getheader("X-Brento-Answer"))
+
+    def test_the_word_a_browser_had_ends_when_it_comes_in_again(self):
+        first, other = self.let_in(), self.let_in()
+        self.assertNotEqual(first["id"], other["id"])
+        status, _, body = self.call("POST", "/api/enter", json.dumps({"ticket": self.app.ticket(), "old": first["id"]}), X_Leitstand="1")
+        second = json.loads(body)
+        self.assertEqual(status, 200)
+        for word, good in ((first, 401), (second, 200), (other, 200)):
+            self.assertEqual(self.call("GET", "/api/tools", X_Leitstand="1", X_Brento_Sign=sign(word, "GET", "/api/tools", self.host))[0], good)
+        # Without a ticket nobody can end a word.
+        self.call("POST", "/api/enter", json.dumps({"ticket": "x", "old": second["id"]}), X_Leitstand="1")
+        self.assertEqual(self.call("GET", "/api/tools", X_Leitstand="1", X_Brento_Sign=sign(second, "GET", "/api/tools", self.host))[0], 200)
+
+    def test_a_ticket_is_not_taken_at_another_address(self):
+        ticket = json.dumps({"ticket": self.app.ticket()})
+        self.assertEqual(self.call("POST", "/api/enter", ticket, X_Leitstand="1", Host="127.0.0.1:%d" % (self.port + 1))[0], 401)
+        # And on Linux not from a program of another account. The ticket is still good after that.
+        with mock.patch.object(address, "peer_uid", return_value=4711), mock.patch.object(server.os, "getuid", return_value=1000, create=True):
+            self.assertEqual(self.call("POST", "/api/enter", ticket, X_Leitstand="1")[0], 401)
+        self.assertEqual(self.call("POST", "/api/enter", ticket, X_Leitstand="1")[0], 200)
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "only Linux says whose program is at the other end")
+    def test_linux_says_whose_program_is_asking(self):
+        with socket.create_connection(("127.0.0.1", self.port), timeout=10) as conn:
+            self.assertEqual(address.peer_uid(conn.getsockname(), conn.getpeername()), os.getuid())
+        self.assertIsNone(address.peer_uid(("127.0.0.1", 1), ("127.0.0.1", 2)))
 
     def test_a_signature_is_good_for_one_request_to_one_address(self):
         word = self.let_in()
@@ -129,9 +196,11 @@ class Door(Home):
         self.assertEqual(self.call("GET", "/api/tools", X_Leitstand="1", X_Brento_Sign=heard, Host=other)[0], 401)
         self.assertEqual(self.call("GET", "/api/tools", X_Leitstand="1", X_Brento_Sign=sign(word, "GET", "/api/tools", "127.0.0.1"), Host="127.0.0.1")[0], 401)
         # Too old, from the future, of an unknown browser, or out of shape.
-        for bad in (sign(word, "GET", "/api/tools", self.host, now=time.time() - 301), sign(word, "GET", "/api/tools", self.host, now=time.time() + 301),
-                    sign({"id": "nobody", "word": word["word"]}, "GET", "/api/tools", self.host),
-                    sign({"id": word["id"], "word": "0" * 64}, "GET", "/api/tools", self.host), "", "...", "a.b.c", "a.b.c.d.e", good + "0"):
+        day = address.SIGN_SECONDS + 1
+        for bad in (sign(word, "GET", "/api/tools", self.host, now=time.time() - day), sign(word, "GET", "/api/tools", self.host, now=time.time() + day),
+                    sign(dict(word, id="nobody"), "GET", "/api/tools", self.host), sign(dict(word, word="0" * 64), "GET", "/api/tools", self.host),
+                    sign(word, "GET", "/api/tools", self.host, run=""), sign(word, "GET", "/api/tools", self.host, run="0" * 16),
+                    "", "....", "a.b.c.d", "a.b.c.d.e", "a.b.c.d.e.f", good + "0"):
             self.assertEqual(self.call("GET", "/api/tools", X_Leitstand="1", X_Brento_Sign=bad)[0], 401, bad)
 
     def test_a_signed_body_cannot_be_exchanged(self):
@@ -175,6 +244,32 @@ class Door(Home):
         self.assertEqual((status, body), (200, b"png"))
         self.assertEqual(self.call("GET", src.split("&s=")[0])[0], 401)
         self.assertEqual(self.call("GET", src.replace("a%20b.png", "other.png"))[0], 401)
+
+    def test_a_bookmark_of_a_page_in_the_notes_folder_leads_there(self):
+        vault = self.home / "vault"
+        vault.mkdir()
+        (vault / "live cards.html").write_text("<p>cards</p>", encoding="utf-8")
+        self.app.apply_profile(settings.save({"vault": str(vault), "sources": {"library": {"on": True}}}))
+        # Without its seal the address only gives the empty frame, whoever asks.
+        path = "/api/library/page?path=live%20cards.html"
+        for where in (path, path + "&s=0"):
+            status, _, body = self.call("GET", where)
+            self.assertEqual((status, body), (200, (server.WEB / "index.html").read_bytes()))
+        word, ask = self.let_in(), "/api/library/seal?path=live%20cards.html"
+        status, _, body = self.call("GET", ask, X_Leitstand="1", X_Brento_Sign=sign(word, "GET", ask, self.host))
+        self.assertEqual(status, 200)
+        status, reply, body = self.call("GET", json.loads(body)["url"])
+        self.assertEqual((status, body), (200, b"<p>cards</p>"))
+        self.assertIn("sandbox", reply.getheader("Content-Security-Policy"))
+
+    def test_an_error_goes_into_the_log_without_its_text(self):
+        said = io.StringIO()
+        with contextlib.redirect_stdout(said), mock.patch.object(self.app, "setup_view", side_effect=ValueError("https://calendar.example/secret")):
+            with self.assertRaises((http.client.HTTPException, OSError)):
+                self.call("GET", "/api/setup", X_Leitstand="1", X_Brento_Key=self.app.key)
+            time.sleep(0.2)
+        self.assertIn("ValueError in ", said.getvalue())
+        self.assertNotIn("secret", said.getvalue())
 
     def test_a_page_of_the_notes_folder_gets_none_of_brentos_rights(self):
         self.assertTrue(server.CSP_PAGE.startswith("sandbox allow-scripts;"))
@@ -228,12 +323,13 @@ class Door(Home):
 class SignedInTheBrowser(unittest.TestCase):
     @unittest.skipUnless(shutil.which("node"), "node is not on this computer")
     def test_the_page_signs_as_the_server_expects(self):
-        word = {"id": "abc123", "word": "0f" * 32}
+        word = {"id": "abc123", "word": "0f" * 32, "run": "00ff00ff00ff00ff"}
         for method, path, body in (("GET", "/api/library/note?path=a%20b%27c.md", ""), ("POST", "/api/ask", '{"q":"Grüße, wie läuft es? \U0001f600"}'), ("POST", "/api/refresh", "{}")):
-            code = "const s=require(process.argv[1]);console.log(s.header(%s,%s,%s,'127.0.0.1:8770',%s,1795530000000))" % tuple(
+            code = "const s=require(process.argv[1]),w=%s,h=s.header(w,w.run,%s,%s,'127.0.0.1:8770',%s,1795530000000);console.log(h+' '+s.answer(w,h))" % tuple(
                 json.dumps(x) for x in (word, method, path, body))
             said = subprocess.run([shutil.which("node"), "-e", code, str(ROOT / "web" / "sign.js")], capture_output=True, timeout=60)
-            self.assertEqual(said.stdout.decode().strip(), sign(word, method, path, "127.0.0.1:8770", body.encode("utf-8"), now=1795530000), said.stderr)
+            head = sign(word, method, path, "127.0.0.1:8770", body.encode("utf-8"), now=1795530000)
+            self.assertEqual(said.stdout.decode().strip(), head + " " + answer(word, head), said.stderr)
 
 
 class Other(BaseHTTPRequestHandler):
@@ -333,10 +429,13 @@ class Neighbours(Home):
                 running.append(start(anna))
                 first = ready(anna)
                 self.assertTrue(first)
+                # Ben used that address before. A browser may keep a word for it, and Anna's program could read that now.
+                address.Browsers(ben, keep=True).add("127.0.0.1:%d" % first)
                 running.append(start(ben))
                 second = ready(ben)
                 self.assertTrue(second)
                 self.assertNotEqual(first, second)
+                self.assertEqual(address.Browsers(ben, keep=True).words, {})
                 with mock.patch.dict(os.environ, {"BRENTO_HOME": ben}):
                     self.assertEqual(address.whose(first), "other")
                 # Anna opens it twice: the second one sees that hers runs, and ends.
@@ -449,7 +548,17 @@ def has_zones():
         return False
 
 
+def index_read(index, today, wait):
+    """read_tasks with another patience."""
+    with mock.patch.object(sources.TaskIndex.scan, "__defaults__", (None, wait)):
+        return sources.read_tasks(index, today)
+
+
 class Reading(unittest.TestCase):
+    def setUp(self):
+        # Until a privacy list is loaded everything is hidden.
+        sources.load_private(Path(__file__).resolve().parent / "stand-in-terms.txt")
+
     def test_a_folder_that_is_gone_or_locked_is_never_an_empty_one(self):
         today = calendar_feed.date(2026, 11, 24)
         index = sources.TaskIndex(Path(tempfile.gettempdir()) / "no such folder of notes")
@@ -485,6 +594,102 @@ class Reading(unittest.TestCase):
         if has_zones():
             here = calendar_feed.datetime(2026, 11, 25, 10, tzinfo=calendar_feed.timezone.utc).astimezone()
             self.assertEqual((event["time"], event["zone"]), (here.strftime("%H:%M"), ""))
+
+    def test_a_note_that_lies_only_in_a_cloud_holds_nothing_up(self):
+        today = calendar_feed.date(2026, 11, 24)
+        with tempfile.TemporaryDirectory() as tmp:
+            for name, more in (("here.md", ""), ("away.md", "x" * 500)):
+                (Path(tmp) / name).write_text("- [ ] From %s \U0001f4c5 2099-01-02\n%s" % (name, more), encoding="utf-8")
+            index = sources.TaskIndex(Path(tmp), ttl=0)
+            fetched, go = [], threading.Event()
+            real = sources.task_lines
+
+            def lines(full, size):
+                if full.name == "away.md":
+                    fetched.append(full.name)
+                    if not go.wait(20):
+                        raise OSError("the cloud does not deliver")
+                return real(full, size)
+            with mock.patch.object(sources, "elsewhere", side_effect=lambda stat: stat.st_size > 400), \
+                    mock.patch.object(sources, "task_lines", side_effect=lines):
+                began = time.monotonic()
+                data, src = index_read(index, today, 0.5)
+                self.assertLess(time.monotonic() - began, 5)
+                self.assertEqual(([t["title"] for t in data["items"]], src["state"], src["note"]),
+                                 (["From here.md"], "unknown", "1 note is not on this computer yet"))
+                go.set()
+                index.worker.join(10)
+            self.assertEqual(fetched, ["away.md"])
+            with mock.patch.object(sources, "elsewhere", return_value=False):
+                data, src = sources.read_tasks(index, today)
+            self.assertEqual((len(data["items"]), src["state"]), (2, "fresh"))
+
+    def test_the_first_round_may_take_its_time(self):
+        today = calendar_feed.date(2026, 11, 24)
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "a.md").write_text("- [ ] Slow \U0001f4c5 2099-01-02\n", encoding="utf-8")
+            index = sources.TaskIndex(Path(tmp), ttl=60)
+            go, real = threading.Event(), sources.task_lines
+            with mock.patch.object(sources, "task_lines", side_effect=lambda *a: go.wait(20) and real(*a)):
+                data, src = index_read(index, today, 0.3)
+                self.assertEqual((data["items"], src["state"], src["note"]), ([], "unknown", "still loading"))
+                go.set()
+                data, src = index_read(index, today, 10)
+            self.assertEqual((len(data["items"]), src["state"]), (1, "fresh"))
+
+    def test_a_folder_among_the_notes_that_cannot_be_listed_is_said(self):
+        today = calendar_feed.date(2026, 11, 24)
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "Work").mkdir()
+            (Path(tmp) / "Work" / "a.md").write_text("- [ ] Send the offer \U0001f4c5 2099-01-02\n", encoding="utf-8")
+            index = sources.TaskIndex(Path(tmp), ttl=0)
+            self.assertEqual(sources.read_tasks(index, today)[1]["state"], "fresh")
+            real = os.scandir
+
+            def scandir(path="."):
+                if str(path).endswith("Work"):
+                    raise PermissionError(13, "no", str(path))
+                return real(path)
+            with mock.patch.object(os, "scandir", side_effect=scandir):
+                data, src = sources.read_tasks(index, today)
+            # What was known of it stays, and it is said that it could not be read.
+            self.assertEqual((len(data["items"]), src["state"], src["note"]), (1, "unknown", "1 note could not be read"))
+            self.assertEqual(sources.read_tasks(index, today)[1]["state"], "fresh")
+
+    def test_dates_no_clock_can_hold_do_not_take_the_calendar_down(self):
+        text = ("BEGIN:VEVENT\nDTSTART:19650312T140000Z\nSUMMARY:Long ago\nEND:VEVENT\n"
+                "BEGIN:VEVENT\nDTSTART:99991231T235959Z\nSUMMARY:Far away\nEND:VEVENT\n"
+                "BEGIN:VEVENT\nDTSTART:20261125T100000\nSUMMARY:Tomorrow\nEND:VEVENT")
+        self.assertEqual([e["title"] for e in calendar_feed.parse_ics(text, calendar_feed.date(2026, 11, 24))], ["Tomorrow"])
+
+    def test_half_a_calendar_is_no_calendar(self):
+        class Reply(io.BytesIO):
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return None
+        whole = b"BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
+        for body, good in ((whole, True), (whole[:-20], False), (b"<html>", False)):
+            with mock.patch.object(calendar_feed.urllib.request, "urlopen", return_value=Reply(body)):
+                if good:
+                    self.assertIn("BEGIN:VCALENDAR", calendar_feed.Feed.read("https://x.example/a.ics"))
+                else:
+                    with self.assertRaises(ValueError):
+                        calendar_feed.Feed.read("https://x.example/a.ics")
+
+    def test_a_link_with_a_space_is_refused_and_never_quoted(self):
+        with self.assertRaises(ValueError) as caught:
+            calendar_feed.clean_url("https://calendar.google.com/calendar/ical/private-0123 456/basic.ics")
+        self.assertNotIn("0123", str(caught.exception))
+        with tempfile.TemporaryDirectory() as tmp:
+            feed = calendar_feed.Feed(Path(tmp) / "calendar-url")
+            with mock.patch.object(feed, "read", side_effect=http.client.InvalidURL("secret-0123")):
+                with self.assertRaises(ValueError) as caught:
+                    feed.connect("https://calendar.google.com/a.ics")
+                self.assertNotIn("0123", str(caught.exception))
+                feed.fetch()
+            self.assertEqual(feed.error, "the calendar link did not answer")
 
     def test_a_note_that_could_not_be_opened_is_tried_again_and_said(self):
         with tempfile.TemporaryDirectory() as tmp:

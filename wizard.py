@@ -174,8 +174,9 @@ def vault_stats(folder):
     except PermissionError:
         if settings.system() == "darwin":
             return {"notes": 0, "tasks": 0, "error": "macOS does not let Brento read this folder yet. Open System Settings, "
-                    "Privacy & Security, Files & Folders, and switch the folder on for %s. Then choose it here again."
-                    % (os.path.basename(sys.executable) or "python3")}
+                    "Privacy & Security, Files & Folders, and switch the folder on for %s. If %s is not in that list, add it "
+                    "under Full Disk Access instead. Then choose the folder here again."
+                    % ((os.path.basename(sys.executable) or "python3",) * 2)}
         return {"notes": 0, "tasks": 0, "error": "Brento may not read this folder."}
     except OSError:
         return {"notes": 0, "tasks": 0, "error": "That folder cannot be read at the moment."}
@@ -185,8 +186,12 @@ def vault_stats(folder):
         notes += sum(1 for name in files if name.endswith(".md"))
         if notes > 20000:
             break
-    tasks = len(sources.TaskIndex(root).scan())
-    return {"notes": notes, "tasks": tasks, "error": ""}
+    index = sources.TaskIndex(root)
+    try:
+        tasks = len(index.scan(wait=20))
+    except (OSError, sources.StillReading):
+        return {"notes": notes, "tasks": None, "missing": "", "error": ""}
+    return {"notes": notes, "tasks": tasks, "missing": index.trouble(), "error": ""}
 
 
 def projects():

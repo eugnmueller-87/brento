@@ -133,7 +133,8 @@ time, a task or card whose date has passed, an urgent card without a date.
   Ask box, and messages go to Slack when you connect it. The logos of the known apps in the dock come from Google's
   icon service. Nothing goes to the author of Brento.
 - **Only for you.** Brento opens only for the person it belongs to. Another account on the same computer sees a locked
-  page, and gets a Brento of its own.
+  page, and gets a Brento of its own. Where there are several accounts, Brento opens with its icon first after each
+  start. How this works, and what it cannot stop: [docs/BLUEPRINT.md](docs/BLUEPRINT.md#rules-worth-keeping).
 - **Nothing to type.** Installing, signing in, updating and removing work without a Terminal.
 - **Nothing to pay for.** No server, no database, no paid API. GitHub, the calendar link and the Slack webhook are free.
 - **Silence is not success.** A source that cannot be read shows *N/A*, never an empty, calm screen.

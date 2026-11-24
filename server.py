@@ -17,6 +17,7 @@ import socketserver
 import subprocess
 import threading
 import time
+import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, quote, urlsplit
@@ -106,14 +107,17 @@ class App:
         self.remote_at = 0.0
         self.auth_cache, self.auth_at = None, 0.0
         self.lock = threading.Lock()
+        # Of its own, so the icon gets in also while a state is being built.
+        self.ticket_lock = threading.Lock()
         self.ask_lock = threading.Lock()
         self.hosts = LOOPBACK | {host.lower()} | {h.lower() for h in allow_hosts}
         # 127.0.0.1 belongs to everyone who is signed in to this computer, so the owner's key is asked for here too.
         self.key, self.tickets = address.load_key(self.home), {}
-        self.browsers = address.Browsers(self.home)
         # A team's copy of this repo can carry team.json: the shared board, apps and Slack settings.
         self.team = settings.load_team(HERE)
         saved = settings.load()
+        self.shared = address.shared()
+        self.browsers = address.Browsers(self.home, keep=not self.shared or bool(saved and saved["keepBrowsers"]))
         # No settings yet: a start with --vault keeps working as it always did, a start without one opens the setup.
         self.needs_setup = saved is None and vault is None
         self.apply_profile(saved or (settings.legacy(vault) if vault else settings.blank()), first=True)
@@ -141,15 +145,20 @@ class App:
         if board:
             board.watch = {p["health"] for p in registry if p.get("health")}
         lib = library.Library(vault, seal=self.seal)
+        self.browsers.hold(not self.shared or profile["keepBrowsers"])
         with self.lock:
             self.profile, self.vault, self.board, self.registry, self.library = profile, vault, board, registry, lib
-            self.tasks = sources.TaskIndex(vault)
+            # What was read of the same folder is kept, so saving a setting does not start over.
+            same = not first and self.tasks.vault == vault
+            self.tasks = sources.TaskIndex(vault, files=self.tasks.files if same else None)
             self.privacy_words = words
             self.state_cache, self.state_at = None, 0.0
         if settings.on(profile, "library"):
             threading.Thread(target=lib.refresh, daemon=True).start()
 
     def state(self):
+        # On a Mac a note that lies only in iCloud must not hold up the page. The task index fetches it in the background.
+        sources.cloud_files(False)
         with self.lock:
             if settings.on(self.profile, "brief") and time.time() - self.remote_at > REMOTE_EVERY:
                 self.remote_at = time.time()
@@ -160,7 +169,8 @@ class App:
                                                        removed=removed, profile=self.profile, tasks=self.tasks)
                 self.state_cache["setupNeeded"] = self.needs_setup
                 self.state_cache["githubOwner"] = self.profile["board"]["owner"]
-                self.state_at = time.time()
+                # Not kept while something is still being read, so the next question gets more.
+                self.state_at = 0.0 if any(s["note"] == "still loading" for s in self.state_cache["sources"]) else time.time()
             return self.state_cache
 
     def fetch_remote(self):
@@ -209,7 +219,7 @@ class App:
                 "vaults": settings.obsidian_vaults(), "home": str(self.home), "gh": sources.gh_status(),
                 "platform": sys.platform, "vaultMissing": bool(self.profile.get("vault")) and not os.path.isdir(self.profile["vault"]),
                 "claude": self.auth() if settings.on(self.profile, "ask") else None,
-                "calendarConnected": self.calendar.connected(), "privacyWords": self.privacy_words,
+                "calendarConnected": self.calendar.connected(), "privacyWords": self.privacy_words, "shared": self.shared,
                 "catalog": self.catalog(), "slackConnected": self.slack.connected(), "slackError": self.slack.error,
                 "slackCreate": slack_notify.CREATE_URL}
 
@@ -217,7 +227,12 @@ class App:
         """Saves the settings and adds the chosen tools. Tools only ever get added here, never removed:
         the dock's own menu removes one, so nothing set up by hand disappears with a setup save."""
         given = body.get("profile") if isinstance(body.get("profile"), dict) else {}
-        merged = dict(self.profile, **{k: v for k, v in given.items() if k in ("name", "vault", "sources", "tasks", "slack")})
+        merged = dict(self.profile, **{k: v for k, v in given.items() if k in ("name", "vault", "tasks", "slack", "keepBrowsers")})
+        # Only the sources that are named change, and of those only what is named. A page that has been open for a while
+        # must not put back what was changed elsewhere.
+        if isinstance(given.get("sources"), dict):
+            merged["sources"] = {sid: dict(row, **(given["sources"].get(sid) if isinstance(given["sources"].get(sid), dict) else {}))
+                                 for sid, row in self.profile["sources"].items()}
         # The board's form fields replace their own values only. A setting the form does not show, such as
         # the aging job, stays as it was.
         if isinstance(given.get("board"), dict):
@@ -335,7 +350,7 @@ class App:
 
     def ticket(self):
         """A word that lets one browser in, once and soon. It goes into an address, so the key never has to."""
-        with self.lock:
+        with self.ticket_lock:
             now = time.monotonic()
             self.tickets = {word: ends for word, ends in self.tickets.items() if ends > now}
             word = secrets.token_urlsafe(24)
@@ -343,7 +358,7 @@ class App:
             return word
 
     def redeem(self, word):
-        with self.lock:
+        with self.ticket_lock:
             return self.tickets.pop(word, 0.0) > time.monotonic()
 
     def open_tool(self, body):
@@ -453,8 +468,8 @@ class Handler(BaseHTTPRequestHandler):
     app = None
     # True on the phone door. The same page, with less it may do.
     phone = False
-    # The hash of the body that a browser signed for, or None when the request is not signed.
-    body_sum = None
+    # The hash of the body that a browser signed for, and the signature its answer gets. None when nothing was signed.
+    body_sum = proof = None
 
     def log_message(self, *args):
         pass
@@ -467,9 +482,25 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
 
-    def send_json(self, payload, status=200):
+    def end_headers(self):
+        if self.proof:
+            # Only Brento knows the browser's word as well, so the page can tell it from a program that took its address.
+            self.send_header(address.ANSWER_HEADER, self.proof)
+        super().end_headers()
+
+    def send_json(self, payload, status=200, **more):
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         self.send_common(status, "application/json; charset=utf-8")
+        for name, value in more.items():
+            self.send_header(name.replace("_", "-"), value)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def send_static(self, path):
+        name, ctype = STATIC[path]
+        body = (WEB / name).read_bytes()
+        self.send_common(200, ctype)
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -478,17 +509,40 @@ class Handler(BaseHTTPRequestHandler):
         host = (self.headers.get("Host") or "").rsplit(":", 1)[0].strip("[]").lower()
         return host in self.app.hosts
 
+    def own_host(self):
+        """The address the browser means, or '' when it is this computer with another program's port."""
+        host = (self.headers.get("Host") or "").lower()
+        name, _, number = host.rpartition(":")
+        return "" if (name or host).strip("[]") in LOOPBACK and number != str(self.app.port) else host
+
     def authorized(self):
         """The owner's own programs send the key, a browser that was let in signs its requests. Nothing that a browser
         sends by itself, such as a cookie, opens anything."""
+        self.body_sum = self.proof = None
         if same(self.headers.get(address.KEY_HEADER), self.app.key):
             return True
-        host = (self.headers.get("Host") or "").lower()
-        name, _, number = host.rpartition(":")
-        if (name or host).strip("[]") in LOOPBACK and number != str(self.app.port):
-            return False
-        self.body_sum = self.app.browsers.signed(self.headers.get(address.SIGN_HEADER), self.command, self.path, host)
-        return self.body_sum is not None
+        host = self.own_host()
+        found = self.app.browsers.signed(self.headers.get(address.SIGN_HEADER), self.command, self.path, host) if host else None
+        if found:
+            self.body_sum, self.proof = found
+        return found is not None
+
+    def not_let_in(self):
+        """The run goes along: a browser that was let in signs for it and asks again. It is of no use to anyone else."""
+        self.send_json({"error": "Open Brento with its icon.", "locked": True}, 401, X_Brento_Run=self.app.browsers.run)
+
+    def enter(self, body):
+        """The launcher's ticket, or the key itself from another computer, for a word of this browser's own."""
+        host = self.own_host()
+        uid = address.peer_uid(self.client_address, self.connection.getsockname())
+        # On Linux every account can read the ticket in the list of running programs, but there the computer also says
+        # whose program is asking.
+        if not host or (uid is not None and uid not in (0, os.getuid())):
+            self.not_let_in()
+        elif self.app.redeem(str(body.get("ticket") or "")) or same(str(body.get("key") or ""), self.app.key):
+            self.send_json(self.app.browsers.add(host, str(body.get("old") or "")))
+        else:
+            self.not_let_in()
 
     def gate(self, url):
         """Refuses foreign Host headers (DNS rebinding) and anything that does not come from the owner. The page's own
@@ -518,11 +572,15 @@ class Handler(BaseHTTPRequestHandler):
             query = parse_qs(url.query)
             if same((query.get("s") or [""])[0], self.app.seal((query.get("path") or [""])[0])):
                 return True
-        if self.command == "GET" and url.path == "/api/state":
-            # Also what a page of an older version gets: it sees that the code has changed and loads the new one.
+            if url.path == "/api/library/page":
+                # A bookmark of such a page. The frame holds nothing: it asks for the seal and goes on (app.js).
+                self.send_static("/")
+                return False
+        if self.command == "GET" and url.path == "/api/state" and self.headers.get("X-Leitstand") != "1":
+            # A page of 0.1.0 that is still open: it sees that the code has changed and loads the new one.
             self.send_json({"locked": True, "webVersion": web_version()})
             return False
-        self.send_json({"error": "Open Brento with its icon.", "locked": True}, 401)
+        self.not_let_in()
         return False
 
     def phone_gate(self, url):
@@ -585,12 +643,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json({"error": "cross-site request refused"}, 403)
             return
         if url.path in STATIC:
-            name, ctype = STATIC[url.path]
-            body = (WEB / name).read_bytes()
-            self.send_common(200, ctype)
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
+            self.send_static(url.path)
         elif PHOTO.match(url.path):
             path = WEB / "photos" / PHOTO.match(url.path).group(1)
             if not path.is_file():
@@ -648,6 +701,9 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_header("Content-Length", str(len(data)))
                 self.end_headers()
                 self.wfile.write(data)
+        elif url.path == "/api/library/seal":
+            path = (parse_qs(url.query).get("path") or [""])[0]
+            self.send_json({"url": "/api/library/page?path=%s&s=%s" % (quote(path, safe=""), self.app.seal(path))})
         elif url.path == "/api/library/page":
             data = self.app.library.page((parse_qs(url.query).get("path") or [""])[0])
             if data is None:
@@ -714,11 +770,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json({"error": "bad request"}, 400)
             return
         if url.path == "/api/enter":
-            # The launcher's ticket, or the key itself from another computer, for a word of this browser's own.
-            if self.app.redeem(str(body.get("ticket") or "")) or same(str(body.get("key") or ""), self.app.key):
-                self.send_json(self.app.browsers.add())
-            else:
-                self.send_json({"error": "Open Brento with its icon.", "locked": True}, 401)
+            self.enter(body)
             return
         if url.path == "/api/refresh":
             self.send_json({"problems": self.app.refresh()})
@@ -926,6 +978,14 @@ class Server(ThreadingHTTPServer):
         self.server_name, self.server_port = self.server_address[:2]
 
 
+    def handle_error(self, request, client_address):
+        """What went wrong and where, without its text, because that can quote a private link."""
+        kind, exc, trace = sys.exc_info()
+        if not isinstance(exc, ConnectionError):
+            places = ["%s line %d" % (Path(f.filename).name, f.lineno) for f in traceback.extract_tb(trace)]
+            print("%s  %s in %s" % (time.strftime("%d.%m. %H:%M:%S"), kind.__name__, ", ".join(places[-4:])), flush=True)
+
+
 class PhoneServer(Server):
     """The second door, on the home network, only for paired phones."""
 
@@ -949,7 +1009,8 @@ def main():
     app = App(vault, args.host, args.allow_host, args.model)
     Handler.app = app
     server = None
-    for number in address.candidates(args.port):
+    numbers = address.candidates(args.port)
+    for number in numbers:
         try:
             server = Server((args.host, number), Handler)
             break
@@ -963,6 +1024,10 @@ def main():
         print("No port from %d on is free, so Brento is not started." % address.FIRST, flush=True)
         return
     app.port = number
+    if number != numbers[0]:
+        # Something else answers at the usual address, and a browser may have opened that. What it keeps for that address
+        # must not open anything once Brento is back there.
+        app.browsers.forget()
     if not args.port and number != address.port():
         address.keep(number)
     threading.Thread(target=app.notify_loop, daemon=True).start()

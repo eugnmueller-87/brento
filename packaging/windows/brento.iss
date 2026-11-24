@@ -72,7 +72,7 @@ english.FinishedLabelNoIcons=Brento opens and walks you through the rest.%n%nTo 
 english.FinishedLabel=Brento opens and walks you through the rest.%n%nTo open it later, press the Windows key, type Brento and press Enter.
 english.ClickFinish=Now click Finish.
 english.ConfirmUninstall=Remove %1 from this computer?%n%nYour notes, your board and your calendar stay as they are.
-english.UninstalledAll=%1 is removed.%n%nYour sign-in to GitHub stays in Windows. You can take it back under github.com/settings/applications.
+english.UninstalledAll=%1 is removed.%n%nIf you signed in to GitHub, that sign-in stays in Windows. You can take it back under github.com/settings/applications.
 german.WelcomeLabel1=Willkommen bei Brento
 german.WelcomeLabel2=Ein Bildschirm, der dir zeigt, was dich heute braucht: deine Aufgaben, dein Board und deine Termine.%n%nBrento bringt alles mit, was es braucht. Es wird nur für dich installiert, darum fragt Windows nicht nach einem Administrator-Kennwort.%n%nDanach öffnet sich Brento und stellt eine Frage pro Seite. Jede davon kannst du überspringen.%n%nBrento läuft auf diesem Computer, behält seine Einstellungen hier und liest nur: Es ändert nie eine Notiz, eine Karte oder einen Termin. Notizen gehen an Claude und Meldungen an Slack nur, wenn du das einschaltest. Die Oberfläche ist auf Englisch.
 german.ClickNext=Klicke auf Weiter.
@@ -84,7 +84,7 @@ german.FinishedLabelNoIcons=Brento öffnet sich und führt dich durch den Rest.%
 german.FinishedLabel=Brento öffnet sich und führt dich durch den Rest.%n%nSpäter öffnen: Windows-Taste drücken, Brento tippen, Eingabetaste.
 german.ClickFinish=Klicke jetzt auf Fertigstellen.
 german.ConfirmUninstall=%1 von diesem Computer entfernen?%n%nDeine Notizen, dein Board und dein Kalender bleiben, wie sie sind.
-german.UninstalledAll=%1 ist entfernt.%n%nDeine Anmeldung bei GitHub bleibt in Windows. Zurücknehmen kannst du sie unter github.com/settings/applications.
+german.UninstalledAll=%1 ist entfernt.%n%nWenn du dich bei GitHub angemeldet hast, bleibt diese Anmeldung in Windows. Zurücknehmen kannst du sie unter github.com/settings/applications.
 
 [CustomMessages]
 english.Autostart=Start Brento when I sign in to Windows

@@ -4,11 +4,13 @@ Every adapter answers two questions: what does the source say, and how old is it
 A source that cannot be read reports "unknown", never an empty success. The code
 ranks the cards; no model decides what comes first.
 """
+import ctypes
 import json
 import os
 import re
 import shutil
 import subprocess
+import sys
 import threading
 import time
 import urllib.request
@@ -80,9 +82,34 @@ def folder_problem(folder):
         os.listdir(str(folder))
     except PermissionError:
         return "Brento may not read the notes folder"
-    except OSError:
+    except (FileNotFoundError, NotADirectoryError):
         return "the notes folder is not there"
+    except OSError:
+        return "the notes folder cannot be read at the moment"
     return ""
+
+
+# How long a request waits for a round through the notes. Then it goes on with what is known.
+WAIT_FOR_NOTES = 2.0
+# One round spends no more than this on notes a cloud has to bring first, and one it did not bring rests for a while.
+FETCH_SECONDS = 60
+RETRY_AFTER = 600
+
+
+def cloud_files(fetch):
+    """On a Mac: whether this thread waits until a file that lies only in a cloud has been brought here. If not, reading
+    one fails at once. Elsewhere the system always waits. (getiopolicy_np(3): type 3, scope thread, on 2, off 1.)"""
+    if sys.platform == "darwin":
+        try:
+            ctypes.CDLL(None).setiopolicy_np(3, 1, 2 if fetch else 1)
+        except (OSError, AttributeError):
+            pass
+
+
+def elsewhere(stat):
+    """Whether a file lies only in a cloud, so that reading it can take long: macOS says it in the flags (dataless),
+    Windows in the attributes (recall on open, recall on data access)."""
+    return bool(getattr(stat, "st_flags", 0) & 0x40000000 or getattr(stat, "st_file_attributes", 0) & 0x00440000)
 
 
 DATE_RE = re.compile(r"(?<![\d.])(\d{1,2})\.(\d{1,2})(\.(\d{4}|\d{2})?)?(?!\d)")
@@ -306,7 +333,7 @@ def column(row, key):
 def read_open_items(vault, today, rel="Open matters.md"):
     text = read(vault, rel)
     if text is None:
-        return {"items": [], "hidden": 0}, source("open-items", "Open matters", rel, None, 7, today, "file not found")
+        return {"items": [], "hidden": 0}, source("open-items", "Open matters", rel, None, 7, today, "not there, or not readable yet")
     stand = re.search(r"(?:Stand|As of) (\d{1,2}\.\d{1,2}\.\d{4})", text)
     as_of = parse_dates(stand.group(1), today)[0] if stand else None
     items, hidden = [], 0
@@ -333,7 +360,7 @@ def read_pipeline(vault, today, rel="Applications.md"):
     text = read(vault, rel)
     empty = {"hot": [], "warm": [], "ended": [], "closed": 0, "closedFirms": [], "lastSent": None, "daysSince": None, "hidden": 0}
     if text is None:
-        return empty, source("pipeline", "Pipeline", rel, None, 7, today, "file not found")
+        return empty, source("pipeline", "Pipeline", rel, None, 7, today, "not there, or not readable yet")
     fm = frontmatter(text)
     as_of = iso_date(fm.get("updated", "")) or iso_date(git(vault, "log", "-1", "--format=%cs", "--", rel).strip())
     out = dict(empty, hot=[], warm=[], ended=[], closedFirms=[])
@@ -381,7 +408,7 @@ def read_pipeline(vault, today, rel="Applications.md"):
 def read_goals(vault, today, rel="Goals.md"):
     text = read(vault, rel)
     if text is None:
-        return {"now": ""}, source("goals", "Goals", rel, None, 14, today, "file not found")
+        return {"now": ""}, source("goals", "Goals", rel, None, 14, today, "not there, or not readable yet")
     as_of = iso_date(git(vault, "log", "-1", "--format=%cs", "--", rel).strip())
     now = ""
     m = re.search(r"^## [^\n]*Right now[^\n]*$(.*?)^## ", text, re.M | re.S)
@@ -417,7 +444,7 @@ def read_liveness(vault, today, rel="outputs/liveness-latest.md"):
     text = read(vault, rel)
     empty = {"alive": None, "still": None, "resting": None, "stillRows": [], "aliveRows": []}
     if text is None:
-        return empty, source("liveness", "Brain health", rel, None, 2, today, "file not found")
+        return empty, source("liveness", "Brain health", rel, None, 2, today, "not there, or not readable yet")
     stamp = re.search(r"Lebenszeichen - (\d{4}-\d{2}-\d{2})", text)
     counts = re.search(r"(\d+) lebt, (\d+) still, (\d+) ruht", text)
     out = dict(empty, stillRows=[], aliveRows=[])
@@ -473,58 +500,131 @@ def task_from(line, today):
             "priority": priority, "started": m.group(1) == "/"}
 
 
-class TaskIndex:
-    """Every dated open task in the vault. Each file is read again only when it changed, so a large vault stays quick."""
+class StillReading(Exception):
+    """The first round through the notes has not ended yet."""
 
-    def __init__(self, vault, ttl=60):
+
+class TaskIndex:
+    """Every dated open task in the vault. Each file is read again only when it changed, so a large vault stays quick. The
+    reading happens in the background, because a note that lies only in a cloud can take a minute to open, and neither the
+    page nor the icon may wait for it."""
+
+    def __init__(self, vault, ttl=60, files=None):
         self.vault, self.ttl = Path(vault), ttl
-        self.files, self.walked, self.found = {}, 0.0, []
-        # Notes that could not be opened on the last round, for example ones a cloud folder has not brought here yet.
-        self.unread = 0
+        # note: (time of its last change, its task lines). A note that cannot be read keeps the lines it had.
+        self.files, self.walked = dict(files or {}), 0.0
+        # Notes and folders that could not be opened, and notes that lie only in a cloud. Both are tried again.
+        self.unread, self.away = 0, 0
+        self.problem, self.failed, self.worker = None, {}, None
         self.lock = threading.Lock()
 
-    def scan(self, today=None):
+    def scan(self, today=None, wait=WAIT_FOR_NOTES):
+        """The task lines as (note, line number, line). Raises OSError when the folder itself cannot be read, so the
+        caller says N/A and never "no tasks", and StillReading while the first round is under way."""
         with self.lock:
-            if self.walked and time.time() - self.walked < self.ttl:
-                return self.found
-            # Raises when the folder is gone or locked, so the caller says N/A and never "no tasks".
-            os.listdir(str(self.vault))
-            seen, out, unread = {}, [], 0
-            for folder, dirs, files in os.walk(self.vault):
-                dirs[:] = [d for d in dirs if not skipped(d) and not PRIVATE.search(d)]
-                for name in files:
-                    if not name.endswith(".md") or PRIVATE.search(name):
-                        continue
-                    full = Path(folder) / name
-                    try:
-                        stat = full.stat()
-                    except OSError:
-                        continue
-                    rel = full.relative_to(self.vault).as_posix()
-                    hit = self.files.get(rel)
+            due = not self.walked or time.time() - self.walked >= self.ttl
+            if due and self.worker is None:
+                self.worker = threading.Thread(target=self.work, daemon=True)
+                self.worker.start()
+            worker = self.worker
+        if due and worker:
+            worker.join(wait)
+        with self.lock:
+            if self.problem:
+                raise self.problem
+            if not self.walked:
+                raise StillReading()
+            return [(rel, n, line) for rel, hit in self.files.items() for n, line in hit[1]]
+
+    def trouble(self):
+        """What is missing from the last round, in plain words, or ''."""
+        out = []
+        if self.away:
+            out.append("%d note%s not on this computer yet" % (self.away, " is" if self.away == 1 else "s are"))
+        if self.unread:
+            out.append("%d note%s could not be read" % (self.unread, "" if self.unread == 1 else "s"))
+        return ", ".join(out)
+
+    def work(self):
+        cloud_files(True)
+        problem = None
+        try:
+            self.round()
+        except OSError as exc:
+            problem = exc
+        except Exception as exc:  # the next round must be able to start, and until then nothing is called calm
+            problem = OSError(type(exc).__name__)
+        with self.lock:
+            self.problem, self.worker = problem, None
+
+    def round(self):
+        # Raises when the folder is gone or locked. Walking through it would say nothing about that.
+        os.listdir(str(self.vault))
+        seen, unread, away, closed = {}, 0, [], []
+
+        def shut(exc):
+            # Windows keeps a few signposts to other folders that nobody may list, such as My Music in Documents.
+            if not isinstance(exc, FileNotFoundError) and not getattr(os.path, "isjunction", lambda path: False)(exc.filename):
+                closed.append(str(exc.filename))
+        for folder, dirs, files in os.walk(str(self.vault), onerror=shut):
+            dirs[:] = [d for d in dirs if not skipped(d) and not PRIVATE.search(d)]
+            for name in files:
+                if not name.endswith(".md") or PRIVATE.search(name):
+                    continue
+                full = Path(folder) / name
+                rel = full.relative_to(self.vault).as_posix()
+                hit = self.files.get(rel)
+                try:
+                    stat = full.stat()
+                except FileNotFoundError:
+                    continue
+                except OSError:
+                    unread += 1
+                else:
                     if not hit or hit[0] != stat.st_mtime:
-                        lines = []
-                        if stat.st_size <= TASK_FILE_LIMIT:
+                        if elsewhere(stat):
+                            away.append((rel, full, stat))
+                        else:
                             try:
-                                text = full.read_text(encoding="utf-8", errors="replace")
+                                hit = (stat.st_mtime, task_lines(full, stat.st_size))
                             except OSError:
-                                # Tried again on the next round. What was known about it stays until then.
                                 unread += 1
-                                for n, line in hit[1] if hit else ():
-                                    out.append((rel, n, line))
-                                if hit:
-                                    seen[rel] = hit
-                                continue
-                            # Cheap first test: a file without a checkbox has no task.
-                            if "[ ]" in text or "[/]" in text:
-                                lines = [(n, line) for n, line in enumerate(text.splitlines(), 1)
-                                         if TASK_LINE.match(line) and (TASK_DUE.search(line) or TASK_SCHEDULED.search(line))]
-                        hit = (stat.st_mtime, lines)
+                if hit:
                     seen[rel] = hit
-                    for n, line in hit[1]:
-                        out.append((rel, n, line))
-            self.files, self.walked, self.found, self.unread = seen, time.time(), out, unread
-            return out
+        for path in closed:
+            unread += 1
+            under = os.path.relpath(path, str(self.vault)).replace(os.sep, "/") + "/"
+            seen.update({rel: hit for rel, hit in self.files.items() if rel.startswith(under)})
+        with self.lock:
+            self.files, self.walked, self.unread, self.away = seen, time.time(), unread, len(away)
+        # What is here has been read. Now the notes a cloud has to bring first, one by one and not for ever.
+        still = {rel for rel, _, _ in away}
+        self.failed = {rel: when for rel, when in self.failed.items() if rel in still}
+        ends = time.monotonic() + FETCH_SECONDS
+        for rel, full, stat in away:
+            if time.monotonic() > ends:
+                break
+            if time.time() - self.failed.get(rel, 0.0) < RETRY_AFTER:
+                continue
+            try:
+                lines = task_lines(full, stat.st_size)
+            except OSError:
+                self.failed[rel] = time.time()
+                continue
+            with self.lock:
+                self.files[rel] = (stat.st_mtime, lines)
+                self.away -= 1
+
+
+def task_lines(full, size):
+    if size > TASK_FILE_LIMIT:
+        return []
+    text = full.read_text(encoding="utf-8", errors="replace")
+    # Cheap first test: a file without a checkbox has no task.
+    if "[ ]" not in text and "[/]" not in text:
+        return []
+    return [(n, line) for n, line in enumerate(text.splitlines(), 1)
+            if TASK_LINE.match(line) and (TASK_DUE.search(line) or TASK_SCHEDULED.search(line))]
 
 
 def read_tasks(index, today):
@@ -534,6 +634,8 @@ def read_tasks(index, today):
     items, hidden = [], 0
     try:
         found = index.scan(today)
+    except StillReading:
+        return {"items": [], "hidden": 0}, source("tasks", "Obsidian tasks", "", None, 1, today, "still loading")
     except OSError as exc:
         why = folder_problem(index.vault) or str(exc)[:120]
         return {"items": [], "hidden": 0}, source("tasks", "Obsidian tasks", "", None, 1, today, why)
@@ -548,7 +650,7 @@ def read_tasks(index, today):
         task["daysLeft"] = (iso_date(task["due"]) - today).days
         items.append(task)
     items.sort(key=lambda t: (t["due"], t["title"].lower()))
-    note = ("%d note%s could not be read" % (index.unread, "" if index.unread == 1 else "s")) if index.unread else ""
+    note = index.trouble() or lost(index.walked, "")
     return {"items": items, "hidden": hidden}, source("tasks", "Obsidian tasks", "Vault checkboxes", None if note else today, 1, today, note)
 
 

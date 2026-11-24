@@ -217,8 +217,7 @@ def app_window():
 
 
 def doorway(page):
-    """A file only the owner can read that leads to the page, for systems where an address would show in the list of
-    running programs."""
+    """A file only the owner can read that leads to the page. For a Mac that does not let scripts run."""
     path = settings.home() / "open.html"
     address.private_file(path, '<!doctype html><meta charset="utf-8"><title>Brento</title><meta http-equiv="refresh" content="0;url=%s">\n' % page)
     return str(path)
@@ -237,12 +236,17 @@ def show():
             os.startfile(page)
     elif sys.platform == "darwin":
         # Not as an argument: on a Mac every account can read the list of running programs, and with it the ticket.
-        done = subprocess.run(["/usr/bin/osascript"], input=('open location "%s"\n' % page).encode("ascii"),
-                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
-        if done.returncode:
+        try:
+            blocked = subprocess.run(["/usr/bin/osascript"], input=('open location "%s"\n' % page).encode("ascii"), timeout=60,
+                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False).returncode
+        except (OSError, subprocess.SubprocessError):
+            blocked = 1
+        if blocked:
             subprocess.run(["/usr/bin/open", doorway(page)], check=False)
     else:
-        subprocess.Popen(["xdg-open", doorway(page)], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        # Here the ticket is an argument that others can read, and a file would not do: Ubuntu's browsers may not open
+        # one in a hidden folder. So the server asks Linux whose program comes with the ticket (address.peer_uid).
+        subprocess.Popen(["xdg-open", page], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 def tell(text):

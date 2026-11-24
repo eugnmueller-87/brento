@@ -68,9 +68,12 @@ mkdir -p "$DIR" "$BIN"
 chmod 700 "$DIR" 2>/dev/null || true
 
 # The brento command: opens Brento, and starts it first when it is not running.
+HOME_LINE=""
+if [ -n "${BRENTO_HOME:-}" ]; then HOME_LINE="BRENTO_HOME='$(printf '%s' "$BRENTO_HOME" | sed "s/'/'\\\\''/g")'; export BRENTO_HOME"; fi
 cat > "$BIN/brento" <<EOF
 #!/bin/sh
 # Opens Brento, and starts it first when it is not running. Written by install.sh.
+$HOME_LINE
 exec "$PY" "$HERE/launcher.py" "\$@"
 EOF
 chmod +x "$BIN/brento"
@@ -137,7 +140,7 @@ if answer is "Remove Brento" then
 	do shell script "/bin/sh " & quoted form of "$(quoted "$HERE/install.sh")" & " --remove"
 	set settingsFolder to "$(quoted "$DIR")"
 	if settingsFolder is "$(quoted "$HOME/.brento")" then
-		set more to button returned of (display dialog "Brento is removed." & return & return & "Delete its settings too? That is the folder .brento in your home folder, with your calendar link, the Slack link and the paired phones. If you may come back to Brento, keep them." & return & return & "Your sign-in to GitHub stays on this Mac. You can take it back under github.com/settings/applications." with title "Brento" buttons {"Delete the settings", "Keep the settings"} default button "Keep the settings")
+		set more to button returned of (display dialog "Brento is removed." & return & return & "Delete its settings too? That is the folder .brento in your home folder, with your calendar link, the Slack link and the paired phones. If you may come back to Brento, keep them." & return & return & "If you signed in to GitHub, that sign-in stays on this Mac. You can take it back under github.com/settings/applications." with title "Brento" buttons {"Delete the settings", "Keep the settings"} default button "Keep the settings")
 		if more is "Delete the settings" then do shell script "/bin/rm -rf " & quoted form of settingsFolder
 	else
 		display dialog "Brento is removed." & return & return & "Your settings stay in your home folder." with title "Brento" buttons {"OK"} default button 1

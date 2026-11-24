@@ -10,7 +10,8 @@ holes, see *Safer*.
 
 Updating from 0.1.0: open the new installer. It keeps your setup and takes over the start at login. After that you can
 delete the unpacked 0.1.0 folder. From now on Brento opens with its icon: a browser has to be let in by it once, and
-bookmarks in that browser work after that.
+bookmarks in that browser work after that. On a computer with several accounts it is once after each start, unless you
+decide otherwise in the settings.
 
 **New**
 
@@ -26,7 +27,8 @@ bookmarks in that browser work after that.
 **Safer**
 
 - Brento opens only for the person it belongs to. In 0.1.0 another account on the same computer could open it as well.
-  A browser is let in once by the icon, gets a word of its own, and signs every request with it without ever sending it.
+  A browser is let in by the icon, gets a word of its own, and signs every request with it without ever sending it. The
+  page checks in turn that it is Brento that answers.
 - A link on a web page can no longer make Brento look into a folder. In 0.1.0 it could, and on Windows a folder on a
   stranger's server would have received an encrypted form of your Windows password.
 - The Ask box reads your notes folder and nothing else, and no settings files or hooks count. In 0.1.0 a notes folder from
@@ -50,8 +52,13 @@ bookmarks in that browser work after that.
   question step by step.
 - With nothing connected, Home says so instead of *All quiet*.
 - A folder that does not exist is said on the spot, and a copied path works with the quotes Windows puts around it.
-- On a Mac, Brento may fetch notes that lie only in iCloud. macOS does not allow that to a program that starts at login
-  unless it asks for it.
+- A calendar or Slack link that was pasted is no longer lost when you click *Next* instead of *Connect*.
+- Notes that lie only in a cloud hold nothing up. Brento reads what is here, says how many are missing and fetches them
+  in the background. On a Mac it may fetch them from iCloud at all, which macOS does not allow a program that starts at
+  login unless it asks for it.
+- A folder among the notes that cannot be opened is said, not skipped in silence.
+- A calendar that breaks off on its way counts as not read, and a date before 1970 in it no longer takes Brento down on
+  Windows.
 - Meetings from other time zones show the right hour on Windows, and everywhere for Outlook calendars.
 - Outlook meetings with a link to a call reach Home, although Outlook's link names no guests.
 - On a Mac the start no longer waits for the network, up to 35 seconds in some places, and no longer raises the question
@@ -59,7 +66,7 @@ bookmarks in that browser work after that.
 - The Board page belongs to your board: no foreign project number, and an empty board says that it is empty.
 - Claude Code is found on Windows where its own installer puts it.
 - Notes and tasks in folders called `raw`, `wiki`, `outputs` or `memory` are no longer left out in a new setup.
-- The Ask box switches on as soon as you have signed in to Claude at the end of the setup, and team boards show right
+- The Ask box is ready as soon as you have signed in to Claude for it at the end of the setup, and team boards show right
   after the GitHub sign-in.
 - When Brento refuses something a phone asks for, the phone always gets the reason.
 

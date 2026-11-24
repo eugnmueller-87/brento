@@ -2,8 +2,9 @@
 
    Brento's icon opens the page with a ticket. The page trades it once for a word of its own and keeps that in this
    browser's storage, which no other address can read, not even another port on this computer. After that the word
-   never travels again: every request is signed with it. So a program that takes Brento's port for a moment, or that
-   the browser is lured to, learns nothing it could use. There is no cookie that a browser would send by itself.
+   never travels again: every request is signed with it, for one address and for one run of Brento, and the answer is
+   signed as well. So an open page neither believes a program that takes Brento's place nor tells it anything that is
+   good for more. There is no cookie that a browser would send by itself. The limits are in docs/BLUEPRINT.md.
 
    SHA-256 and HMAC are written out here because a browser only offers its own on addresses it calls secure. */
 (function (root) {
@@ -62,13 +63,16 @@
     return hex(sha256(padded(0x5c, sha256(padded(0x36, utf8(text))))));
   }
 
-  /* The header for one request: who signs, when, what the body is, and the signature over all of it and the address. */
-  function header(word, method, path, host, body, now) {
+  /* The header for one request: who signs, when, what the body is, for which run, and the signature over all of it and
+     the address. */
+  function header(word, run, method, path, host, body, now) {
     const sum = body ? hash(body) : '-';
-    return [word.id, now, sum, hmac(word.word, [method, path, host, now, sum].join('\n'))].join('.');
+    return [word.id, now, sum, run, hmac(word.word, [method, path, host, now, sum, run].join('\n'))].join('.');
   }
+  /* What the answer to such a request is signed with. */
+  const answer = (word, head) => hmac(word.word, 'answer\n' + head.split('.')[4]);
 
-  const api = { KEY, hash, hmac, header };
+  const api = { KEY, hash, hmac, header, answer };
   if (typeof module !== 'undefined') module.exports = api;
   else root.BrentoSign = api;
 })(this);

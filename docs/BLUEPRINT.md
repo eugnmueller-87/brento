@@ -71,8 +71,15 @@ stop the start, so no secret or personal path can slip in.
   a page or into a log. The key is never part of an address either: the launcher asks for a ticket that works once, for
   two minutes, and the page trades it for a word of its own.
 - 127.0.0.1 is shared by everyone who is signed in to a computer, and a browser gives its cookies to every port on it. So
-  there is no cookie: a page signs each request (`web/sign.js`), and what another program overhears is good for nothing
-  else. The owner's key is only sent to a server that has proved it already knows it (`address.whose`).
+  there is no cookie: a page signs each request (`web/sign.js`) for one address and one run of the server, and the server
+  signs the answer. What another program overhears is good for nothing else, and an open page does not believe a program
+  that took Brento's place. The owner's key is only sent to a server that has proved it already knows it
+  (`address.whose`).
+- What this cannot stop: while Brento is not running, a program of another account can take its address. A page opened
+  there by hand in that time is that program's page, and it can read what the browser keeps for the address, or stay. So
+  on a computer with several accounts a browser's word ends with each run (`address.shared`), unless the owner decides
+  otherwise in the settings, and it ends everywhere once Brento finds its usual port taken. Against someone who runs such
+  a program on your computer, no page on 127.0.0.1 is safe.
 - The page's own files are open and hold nothing. Every question to `/api/` is signed and carries the header
   `X-Leitstand`; pictures of notes carry a seal in their address. A new route is closed to strangers by itself.
 - What other people can write into the notes folder is data: a note is escaped, a web page in it is shown in a sandbox,

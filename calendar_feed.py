@@ -3,6 +3,7 @@
 The link itself is a secret: whoever has it can read the calendar. So it lives in one file in the
 home folder with owner-only rights, is never sent to the page, and never appears in a log or error.
 """
+import http.client
 import ipaddress
 import json
 import re
@@ -32,6 +33,8 @@ def clean_url(url):
     url = str(url or "").strip()
     if not url:
         raise ValueError("Paste the link first.")
+    if re.search(r"\s", url):
+        raise ValueError("There is a space in it. Copy one link, and only that.")
     # Apple and Outlook hand out webcal:// links. They are the same address over https.
     if url.lower().startswith("webcal://"):
         url = "https://" + url[len("webcal://"):]
@@ -60,7 +63,9 @@ JOIN_LINK = re.compile(r"https://(?:teams\.microsoft\.com/(?:l/meetup-join|meet)
 CALL_LINK = re.compile(r"^https://(?:teams\.microsoft\.com/|teams\.live\.com/|meet\.google\.com/|[\w.-]*zoom\.us/(?:j|my)/"
                        r"|[\w.-]*webex\.com/(?:meet|join|[\w.-]+/j\.php))", re.I)
 # A line's name ends at the first colon that is not inside quotes. Outlook writes TZID="tzone://Microsoft/Utc".
-ICS_LINE = re.compile(r'^((?:[^":]|"[^"]*")*):(.*)$')
+ICS_LINE = re.compile(r'^([^":]*(?:"[^"]*"[^":]*)*):(.*)$')
+# A calendar larger than this is not read at all. Half of one would look like a quiet week.
+MAX_BYTES = 64 * 1024 * 1024
 
 
 def _join(*texts):
@@ -123,7 +128,8 @@ def parse_ics(text, today, days=21):
             continue
         try:
             day, clock, zone = _start(*fields["DTSTART"])
-        except ValueError:
+        except (ValueError, OSError, OverflowError):
+            # No date, or one no computer clock can hold. Windows refuses everything before 1970.
             continue
         if not today <= day <= today + timedelta(days=days):
             continue
@@ -142,6 +148,8 @@ class Feed:
     def __init__(self, path, ttl=900):
         self.path, self.ttl = Path(path), ttl
         self.text, self.fetched, self.error = None, 0.0, ""
+        # (which read, from which day, how far) and the events in it, so a large calendar is gone through once a read.
+        self.parsed = (None, [])
         self.busy = False
         self.lock = threading.Lock()
 
@@ -159,9 +167,9 @@ class Feed:
         url = clean_url(url)
         try:
             body = self.read(url)
-        except (OSError, ValueError):
+        except (OSError, ValueError, http.client.HTTPException):
             # The message stays generic, because a network error can quote the secret link.
-            raise ValueError("Brento could not read that link. Copy it again from your calendar's settings.")
+            raise ValueError("Brento could not read that link. Copy it again from your calendar's settings.") from None
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.path.write_text(url, encoding="utf-8")
         try:
@@ -181,15 +189,16 @@ class Feed:
     def read(url):
         request = urllib.request.Request(url, headers={"User-Agent": "Brento"})
         with urllib.request.urlopen(request, timeout=20) as res:
-            body = res.read(8 * 1024 * 1024).decode("utf-8", errors="replace")
-        if "BEGIN:VCALENDAR" not in body:
-            raise ValueError("not a calendar")
+            body = res.read(MAX_BYTES + 1).decode("utf-8", errors="replace")
+        # The last line counts too: a transfer that broke off looks like a calendar with fewer appointments.
+        if "BEGIN:VCALENDAR" not in body or "END:VCALENDAR" not in body[-2000:]:
+            raise ValueError("not a whole calendar")
         return body
 
     def fetch(self):
         try:
             self.text, self.fetched, self.error = self.read(self.url()), time.time(), ""
-        except (OSError, ValueError):
+        except (OSError, ValueError, http.client.HTTPException):
             # The message stays generic, because a network error can quote the secret link.
             self.error = "the calendar link did not answer"
         finally:
@@ -212,4 +221,7 @@ class Feed:
             threading.Thread(target=self.fetch, daemon=True).start()
         if self.text is None:
             return [], None, self.error
-        return parse_ics(self.text, today, days), self.fetched, self.error
+        which = (self.fetched, today, days)
+        if self.parsed[0] != which:
+            self.parsed = (which, parse_ics(self.text, today, days))
+        return [dict(e) for e in self.parsed[1]], self.fetched, self.error
