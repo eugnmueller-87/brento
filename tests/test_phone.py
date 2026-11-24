@@ -69,6 +69,26 @@ class Addresses(unittest.TestCase):
         for ip in ("127.0.0.1", "169.254.3.4", "8.8.8.8", "0.0.0.0", "fe80::1", "nonsense"):
             self.assertEqual(phone.kind(ip), "", ip)
 
+    MAC = ("lo0: flags=8049<UP,LOOPBACK> mtu 16384\n\tinet 127.0.0.1 netmask 0xff000000\n"
+           "en0: flags=8863<UP,BROADCAST> mtu 1500\n\tinet6 fe80::1%en0 prefixlen 64\n"
+           "\tinet 192.168.178.40 netmask 0xffffff00 broadcast 192.168.178.255\n"
+           "utun4: flags=8051<UP,POINTOPOINT> mtu 1280\n\tinet 100.90.1.2 --> 100.90.1.2 netmask 0xffffffff\n")
+    LINUX = ("1: lo    inet 127.0.0.1/8 scope host lo\\       valid_lft forever\n"
+             "2: eth0    inet 192.168.178.40/24 brd 192.168.178.255 scope global eth0\\       valid_lft forever\n")
+
+    def test_addresses_come_from_the_computer_itself(self):
+        def never(*args):
+            raise AssertionError("looked up %r" % (args,))
+        for text, expected in ((self.MAC, ["127.0.0.1", "192.168.178.40", "100.90.1.2"]), (self.LINUX, ["127.0.0.1", "192.168.178.40"])):
+            ran = mock.Mock(stdout=text.encode("utf-8"))
+            with mock.patch.object(phone.sys, "platform", "darwin"), mock.patch.object(phone.subprocess, "run", return_value=ran), \
+                    mock.patch.object(phone.socket, "getaddrinfo", never):
+                self.assertEqual(phone.own_addresses(), expected)
+
+    def test_a_missing_program_is_no_reason_to_fail(self):
+        with mock.patch.object(phone.sys, "platform", "linux"), mock.patch.object(phone.subprocess, "run", side_effect=FileNotFoundError):
+            self.assertEqual(phone.own_addresses(), [])
+
     def test_host_header_must_be_an_address_or_allowed_by_hand(self):
         self.assertTrue(phone.host_ok("192.168.178.23:8771", set()))
         self.assertTrue(phone.host_ok("[fe80::1]:8771", set()))
@@ -117,6 +137,9 @@ class PhoneDoor(unittest.TestCase):
     def call(self, method, path, body=None, cookie="", host=None, kind="application/json"):
         conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
         headers = {"Host": host or "127.0.0.1:%d" % self.port}
+        if method == "GET" and path.startswith("/api/"):
+            # The page sends this with everything it asks for.
+            headers["X-Leitstand"] = "1"
         if cookie:
             headers["Cookie"] = "%s=%s" % (phone.COOKIE, cookie)
         if body is not None:
@@ -235,7 +258,7 @@ class MacSetup(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp, mock.patch.object(settings, "system", return_value="darwin"), \
                 mock.patch.object(wizard.os, "listdir", side_effect=PermissionError("blocked")):
             result = wizard.vault_stats(tmp)
-        self.assertIn("Full Disk Access", result["error"])
+        self.assertIn("Files & Folders", result["error"])
 
 
 if __name__ == "__main__":

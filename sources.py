@@ -58,8 +58,32 @@ def set_owner(name):
     ME = re.compile(r"\b(?:%s)\b" % "|".join(re.escape(w) for w in words), re.I)
 
 
-SKIP_DIRS ={"raw", "wiki", "outputs", "memory", ".claude", ".obsidian", ".git", ".trash",
-             "node_modules", "_private", "__pycache__"}
+# Folders that hold no notes of their own: programs, trash, copies. Those with a dot in front count as well.
+SKIP_DIRS = {"node_modules", "_private", "__pycache__"}
+# More folders the owner wants left out, from the settings.
+EXTRA_SKIP = set()
+
+
+def set_skip(names):
+    global EXTRA_SKIP
+    EXTRA_SKIP = set(names or [])
+
+
+def skipped(folder):
+    return folder in SKIP_DIRS or folder in EXTRA_SKIP or folder.startswith(".")
+
+
+def folder_problem(folder):
+    """Why the notes folder cannot be read, in plain words, or ''. Walking through a folder says nothing about that:
+    one that is gone or locked looks just like an empty one."""
+    try:
+        os.listdir(str(folder))
+    except PermissionError:
+        return "Brento may not read the notes folder"
+    except OSError:
+        return "the notes folder is not there"
+    return ""
+
 
 DATE_RE = re.compile(r"(?<![\d.])(\d{1,2})\.(\d{1,2})(\.(\d{4}|\d{2})?)?(?!\d)")
 WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
@@ -219,8 +243,11 @@ def read(vault, rel):
 
 
 def git(vault, *args):
+    exe = find_exe("git")
+    if not exe:
+        return ""
     try:
-        out = subprocess.run(["git", "-C", str(vault)] + list(args), capture_output=True, timeout=15,
+        out = subprocess.run([exe, "-C", str(vault)] + list(args), capture_output=True, timeout=15,
                              encoding="utf-8", errors="replace", creationflags=NO_WINDOW)
     except (OSError, subprocess.SubprocessError):
         return ""
@@ -229,8 +256,11 @@ def git(vault, *args):
 
 def fetch_remote(vault):
     """For the refresh button: moves origin/master so a brief pushed from elsewhere shows. No file in the vault changes."""
+    exe = find_exe("git")
+    if not exe:
+        return False
     try:
-        out = subprocess.run(["git", "-C", str(vault), "fetch", "--quiet", "--no-auto-maintenance", "origin", "master"],
+        out = subprocess.run([exe, "-C", str(vault), "fetch", "--quiet", "--no-auto-maintenance", "origin", "master"],
                              capture_output=True, timeout=30, encoding="utf-8", errors="replace", creationflags=NO_WINDOW)
     except (OSError, subprocess.SubprocessError):
         return False
@@ -443,9 +473,11 @@ class TaskIndex:
         with self.lock:
             if self.walked and time.time() - self.walked < self.ttl:
                 return self.found
+            # Raises when the folder is gone or locked, so the caller says N/A and never "no tasks".
+            os.listdir(str(self.vault))
             seen, out = {}, []
             for folder, dirs, files in os.walk(self.vault):
-                dirs[:] = [d for d in dirs if d not in SKIP_DIRS and not d.startswith(".") and not PRIVATE.search(d)]
+                dirs[:] = [d for d in dirs if not skipped(d) and not PRIVATE.search(d)]
                 for name in files:
                     if not name.endswith(".md") or PRIVATE.search(name):
                         continue
@@ -483,7 +515,8 @@ def read_tasks(index, today):
     try:
         found = index.scan(today)
     except OSError as exc:
-        return {"items": [], "hidden": 0}, source("tasks", "Obsidian tasks", "", None, 1, today, str(exc)[:120])
+        why = folder_problem(index.vault) or str(exc)[:120]
+        return {"items": [], "hidden": 0}, source("tasks", "Obsidian tasks", "", None, 1, today, why)
     for rel, n, line in found:
         task = task_from(line, today)
         if task is None:
@@ -750,7 +783,7 @@ def next_step(status, area, title, stamped, rules, today, due=None):
 def read_board(board, today, rules=None):
     raw, fetched, error = board.snapshot()
     rel = "GitHub Project #%s" % board.number
-    aging = {"rules": rules, "job": getattr(board, "job", None)}
+    aging = {"rules": rules, "job": getattr(board, "job", None), "on": bool(getattr(board, "aging", None))}
     empty = {"items": [], "archived": [], "counts": {}, "bereiche": [], "passed": 0, "hidden": 0, "error": error, "aging": aging}
     if raw is None:
         return empty, source("board", "Board", rel, None, 1, today, error or "still loading")
@@ -822,7 +855,7 @@ def build_projects(vault, registry, board_data, open_items, pipeline, board, tod
         matters = open_items["items"] if p.get("matters") else []
         dates = [d for n in open_idx for d in parse_dates(cards[n]["title"], today) if d >= today]
         dates += [iso_date(m["due"]) for m in matters if m["due"] and iso_date(m["due"]) >= today]
-        note = p.get("note") if p.get("note") and (Path(vault) / p["note"]).is_file() else None
+        note = p.get("note") if p.get("note") and os.path.isfile(str(Path(vault) / p["note"])) else None
         pushed = iso_date(repos.get(p.get("repo"), "") or "")
         changed = pushed or (note_date(vault, note) if note else None)
         if p.get("pipeline") and tracker_date and (changed is None or tracker_date > changed):
@@ -857,7 +890,7 @@ def read_notes(vault):
     notes = []
     root = Path(vault)
     for folder, dirs, files in os.walk(root):
-        dirs[:] = [d for d in dirs if d not in SKIP_DIRS and not PRIVATE.search(d)]
+        dirs[:] = [d for d in dirs if not skipped(d) and not PRIVATE.search(d)]
         for name in files:
             if name.endswith(".md") and not PRIVATE.search(name):
                 rel = (Path(folder) / name).relative_to(root).as_posix()
@@ -1016,8 +1049,10 @@ def read_calendar(feed, today):
 
 
 def event_matters(event):
-    """Someone else is expecting you, or you marked it. A dentist slot or a weekly job is routine."""
-    return event["people"] >= 2 or event["conference"] or "!" in event["title"] or bool(MUST_PREPARE.search(event["title"]))
+    """Someone else is expecting you, or you marked it. A dentist slot or a weekly job is routine. Outlook's link names
+    no guests, so there the join link of the call is what tells."""
+    return (event["people"] >= 2 or event["conference"] or bool(event.get("join")) or "!" in event["title"]
+            or bool(MUST_PREPARE.search(event["title"])))
 
 
 def in_days(days):
@@ -1100,7 +1135,7 @@ def build_alerts(data, cards, events, titles, srcs, today):
             alert(days, "event-%s-%s" % (event["date"], event["title"]), "Prepare",
                   "%s %s" % (weekday_label(event["date"]), event["time"]) if event["time"] else weekday_label(event["date"]),
                   event["title"], event["where"] or ("With %d other%s" % (people, "" if people == 1 else "s") if people > 0 else ""),
-                  ("%s, and other people are expecting you." % in_days(days).capitalize()) if people > 0 or event["conference"]
+                  ("%s, and other people are expecting you." % in_days(days).capitalize()) if people > 0 or event["conference"] or event.get("join")
                   else "%s. You marked this as important." % in_days(days).capitalize(), srcs["calendar"], note=note,
                   join=event.get("join", ""))
 
@@ -1170,7 +1205,7 @@ def card_note(card, titles, vault=None):
     """The note a card points at: named in its text ("Vault: Projects/X.md"), or by the words before its colon.
     Without the vault at hand, a named note counts when it is among the known notes."""
     named = re.search(r"Vault:\s*([^\n]+?\.md)", card.get("body") or "")
-    if named and ((Path(vault) / named.group(1)).is_file() if vault else named.group(1) in titles.values()):
+    if named and (os.path.isfile(str(Path(vault) / named.group(1))) if vault else named.group(1) in titles.values()):
         return named.group(1)
     return titles.get(re.sub(r"\s+\d{1,2}/\d{1,2}$", "", card["title"].split(":")[0]).strip().lower())
 
@@ -1402,14 +1437,14 @@ def build_state(vault, board, today=None, registry=(), calendar=None, removed=fr
         item["notePath"] = titles.get(item["note"].split("/")[-1].lower())
     for entry in pipeline["hot"] + pipeline["warm"] + pipeline["ended"]:
         company = "Companies/%s.md" % entry["link"]
-        entry["notePath"] = (company if library_on and (Path(vault) / company).is_file() else titles.get(entry["link"].lower()))
+        entry["notePath"] = (company if library_on and os.path.isfile(str(Path(vault) / company)) else titles.get(entry["link"].lower()))
     for task in task_data["items"]:
         task["notePath"] = task["path"] if library_on else None
     for src in srcs:
         if src["id"] == "board":
             src["route"] = "board"
             src["url"] = getattr(board, "url", "")
-        elif src["id"] not in ("calendar", "tasks") and src["path"] and library_on and (Path(vault) / src["path"]).is_file():
+        elif src["id"] not in ("calendar", "tasks") and src["path"] and library_on and os.path.isfile(str(Path(vault) / src["path"])):
             src["notePath"] = src["path"]
 
     data = {"open": open_items, "pipeline": pipeline, "goals": goals, "brief": brief, "liveness": liveness,
@@ -1432,10 +1467,11 @@ def build_state(vault, board, today=None, registry=(), calendar=None, removed=fr
     projects = build_projects(vault, registry, board_data, open_items, pipeline, board, today, iso_date(s_pipe["asOf"] or ""))
     pages_off = [page for page, sid in (("library", "library"), ("pipeline", "pipeline"), ("board", "board"), ("ask", "ask"))
                  if not on(sid) or (sid == "board" and board is None)]
-    return {"today": today.isoformat(), "vaultName": Path(vault).resolve().name, "cards": cards,
+    return {"today": today.isoformat(), "vaultName": os.path.basename(os.path.abspath(str(vault))), "cards": cards,
             "deadlines": deadlines, "sources": [s for s in srcs if s["state"] != "off"], "hidden": hidden,
             "projects": projects, "alerts": alerts, "focus": focus, "removedCards": gone,
             "agenda": build_agenda(data, events, titles, today), "agendaDays": AGENDA_DAYS,
             "events": [e for e in events if (iso_date(e["date"]) - today).days <= TODAY_EVENT_DAYS],
             "calendarConnected": bool(calendar and calendar.connected()), "pagesOff": pages_off,
+            "vaultProblem": folder_problem(vault) if (profile or {}).get("vault") else "",
             "owner": (profile or {}).get("name", ""), "schedule": build_schedule(data, events, titles, today), **data}

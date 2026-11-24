@@ -14,18 +14,22 @@ what reaches them. Brento is developed in a separate working copy; each new vers
    git push origin main v0.2.0
    ```
 
-5. The release workflow (`.github/workflows/release.yml`) runs the tests, builds both installers, and installs,
-   starts, updates and removes each of them on real Macs (Apple chip and Intel) and on Windows. Only when all of that
-   worked, it publishes the release with the installers, their checksums and the changelog section as its text.
+5. The release workflow (`.github/workflows/release.yml`) runs the tests and builds both installers. It then installs
+   each of them on fresh computers, goes through the whole setup in a browser, updates, crashes and removes it: macOS 15
+   and 26 (Apple chip and Intel), macOS 27, Windows Server 2022 and 2025, Windows 11 on Arm. Only when all of that
+   worked, it publishes the release with the installers, their checksums and the changelog section as its text, and
+   compares what the download links give with what was tested.
 
 To try all of this without publishing, open **Actions**, **release**, **Run workflow**, or push to a branch called
-`try/something`. It also keeps a picture of each installer.
+`try/something`. Either way it keeps pictures of every step. Look at them before you tag.
 
 ## What goes into the installers
 
-`packaging/runtimes.json` names the Python and the GitHub program that go along, by address and SHA-256. To update one,
-change its address, compare the new checksum with the publisher's list, and write it down there. A file that differs
-stops the build. Build by hand with `python packaging/build.py mac` (any computer) or `windows` (Windows with Inno
+`packaging/runtimes.json` names the Python, the GitHub program and the time zone data that go along, by address and
+SHA-256. To update one, change its address, compare the new checksum with the publisher's list, and write it down there.
+A file that differs stops the build. A new GitHub program can need a newer macOS: check it, and keep the number in
+`packaging/mac/Distribution.xml` and on the front page. A new Mac Python brings its own libraries: take their license texts
+along (`packaging/mac/licenses`, from the same tag of python-build-standalone). Build by hand with `python packaging/build.py mac` (any computer) or `windows` (Windows with Inno
 Setup 6).
 
 The installers are not signed. A signature is what ends the security question on the first start: on a Mac through

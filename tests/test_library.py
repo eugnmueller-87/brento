@@ -5,6 +5,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import library
+import settings
 import sources
 
 sources.load_private(Path(__file__).resolve().parent / "stand-in-terms.txt")
@@ -102,8 +103,25 @@ class Index(unittest.TestCase):
              "Projects/Cards.html": "<!doctype html><p>live cards</p>", "raw/Hidden.html": "<p>never</p>",
              "Projects/Leak.html": "<p>Geheimsache Akte 999</p>"}
 
+    def setUp(self):
+        sources.set_skip(settings.OLD_SKIP)
+        self.addCleanup(sources.set_skip, [])
+
     def lib(self):
         return library.Library(vault_with(self.FILES))
+
+    def test_a_new_owner_has_no_folder_left_out(self):
+        sources.set_skip(settings.blank()["skip"])
+        paths = {n["path"] for n in self.lib().overview()["notes"]}
+        self.assertLessEqual({"raw/Secret.md", "memory/M.md"}, paths)
+        self.assertFalse(any(p.startswith(".claude") for p in paths))
+        # Settings from before the choice keep what was always left out.
+        self.assertEqual(settings.normalize({"name": "Alex"})["skip"], settings.OLD_SKIP)
+        self.assertEqual(settings.normalize({"skip": ["Old", "a/b", ""]})["skip"], ["Old"])
+
+    def test_a_folder_that_is_gone_says_so(self):
+        self.assertEqual(self.lib().overview()["problem"], "")
+        self.assertIn("not there", library.Library(Path(tempfile.gettempdir()) / "no such notes").overview()["problem"])
 
     def test_only_notes_people_wrote_are_listed(self):
         paths = {n["path"] for n in self.lib().overview()["notes"]}

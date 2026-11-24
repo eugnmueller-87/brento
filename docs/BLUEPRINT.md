@@ -1,6 +1,6 @@
 # Building your own Brento
 
-Brento is small on purpose: about ten files, the Python standard library, plain JavaScript, no build step. This page
+Brento is small on purpose: a dozen files, the Python standard library, plain JavaScript, no build step. This page
 is the map for changing it.
 
 ## How a request flows
@@ -19,7 +19,8 @@ age of its source, and the page draws them.
 
 | File | What it does |
 |---|---|
-| `server.py` | Local web server on 127.0.0.1:8770. Serves the page and the JSON API; refuses foreign hosts and cross-site posts |
+| `server.py` | Local web server on 127.0.0.1:8770. Serves the page and the JSON API; refuses foreign hosts, anyone without the owner's key, and requests that do not come from its own page |
+| `address.py` | The owner's key, the port (8770 or the next free one) and the question whose Brento answers there. `ask-settings.json` beside it locks the Ask box |
 | `settings.py` | The owner's settings (`~/.brento/brento.json`), the list of sources, the team file (`team.json`) |
 | `sources.py` | One reader per source, and the rules that rank cards for Home, Today and the schedule check |
 | `wizard.py` | The first-start wizard's guesses and its few actions: create a board, run a sign-in without a window, fetch the GitHub program where the installer did not bring it |
@@ -66,7 +67,14 @@ stop the start, so no secret or personal path can slip in.
 
 - Read, never write: no note, card or appointment is changed. The only writes are Brento's own files in `~/.brento`,
   plus a board or field the owner asks the wizard to create.
-- Secrets live in their own files (`calendar-url`, `slack-webhook`) and never travel back to a page or into a log.
+- Secrets live in their own files (`calendar-url`, `slack-webhook`, `access-key`) and never travel back to a page or into
+  a log. The key is never part of an address either: the launcher asks for a ticket that works once, for two minutes.
+- 127.0.0.1 is shared by everyone who is signed in to a computer. Nothing is served without the key, and the key is only
+  sent to a server that has proved it already knows it (`address.whose`).
+- Every question to `/api/` carries the header `X-Leitstand`, which a link, a redirect or a foreign page cannot send.
+  A new route that does something on the computer must not be reachable without it.
+- What other people can write into the notes folder is data: a note is escaped, a web page in it is shown in a sandbox,
+  and settings or hooks in it never reach the Ask box.
 - Only fixed programs can be started from the page (`wizard.ACTIONS`, the dock's own list), never anything a page sends.
 - A phone gets a shorter list of routes (`phone.allowed`). A new route is closed to phones until you add it there.
 - Every new cost is a design change: Brento runs without servers and paid APIs, and that is a feature.

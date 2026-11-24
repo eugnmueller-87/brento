@@ -4,6 +4,7 @@ The link itself is a secret: whoever has it can read the calendar. So it lives i
 home folder with owner-only rights, is never sent to the page, and never appears in a log or error.
 """
 import ipaddress
+import json
 import re
 import threading
 import time
@@ -18,12 +19,19 @@ except ImportError:
     ZoneInfo = None
 
 
+# Outlook names time zones its own way. The list is Unicode's: https://cldr.unicode.org, windowsZones, territory 001.
+try:
+    WINDOWS_ZONES = json.loads((Path(__file__).resolve().parent / "windows-zones.json").read_text(encoding="utf-8"))
+except (OSError, ValueError):
+    WINDOWS_ZONES = {}
 # Calendar services whose shared links need not end in .ics. Apple's public link, for one, carries no ending.
 ICS_HOSTS = ("icloud.com", "outlook.office365.com", "outlook.office.com", "outlook.live.com")
 
 
 def clean_url(url):
     url = str(url or "").strip()
+    if not url:
+        raise ValueError("Paste the link first.")
     # Apple and Outlook hand out webcal:// links. They are the same address over https.
     if url.lower().startswith("webcal://"):
         url = "https://" + url[len("webcal://"):]
@@ -61,20 +69,24 @@ def _text(value):
 
 
 def _start(params, value):
-    """Returns (date, 'HH:MM' or ''). All-day events have no time."""
+    """Returns (date, 'HH:MM' or '', the zone's name when the time could not be put into this computer's own).
+    All-day events have no time."""
     if len(value) == 8:
-        return datetime.strptime(value, "%Y%m%d").date(), ""
+        return datetime.strptime(value, "%Y%m%d").date(), "", ""
+    unknown = ""
     stamp = datetime.strptime(value[:15], "%Y%m%dT%H%M%S")
     if value.endswith("Z"):
         stamp = stamp.replace(tzinfo=timezone.utc).astimezone()
     else:
-        tz = re.search(r"TZID=([^;:]+)", params)
-        if tz and ZoneInfo:
+        tz = re.search(r'TZID=(?:"([^"]+)"|([^;:]+))', params)
+        if tz:
+            zone = (tz.group(1) or tz.group(2)).strip()
             try:
-                stamp = stamp.replace(tzinfo=ZoneInfo(tz.group(1))).astimezone()
-            except Exception:  # an unknown zone name still leaves a usable local clock time
-                pass
-    return stamp.date(), stamp.strftime("%H:%M")
+                stamp = stamp.replace(tzinfo=ZoneInfo(WINDOWS_ZONES.get(zone, zone))).astimezone()
+            except Exception:
+                # The sender's clock time is still worth showing, with the name of the place it belongs to.
+                unknown = zone
+    return stamp.date(), stamp.strftime("%H:%M"), unknown
 
 
 def parse_ics(text, today, days=21):
@@ -100,13 +112,16 @@ def parse_ics(text, today, days=21):
         if fields.get("STATUS", ("", ""))[1].strip().upper() == "CANCELLED":
             continue
         try:
-            day, clock = _start(*fields["DTSTART"])
+            day, clock, zone = _start(*fields["DTSTART"])
         except ValueError:
             continue
         if not today <= day <= today + timedelta(days=days):
             continue
+        where = _text(fields.get("LOCATION", ("", ""))[1])
+        if zone:
+            where = "%s is the time in %s. %s" % (clock, zone, where)
         events.append({"title": _text(fields["SUMMARY"][1]), "date": day.isoformat(), "time": clock,
-                       "where": _text(fields.get("LOCATION", ("", ""))[1]), "people": people, "conference": conference,
+                       "where": where.strip(), "people": people, "conference": conference,
                        "join": _join(meet, *(fields.get(k, ("", ""))[1] for k in ("LOCATION", "URL", "DESCRIPTION")))})
     events.sort(key=lambda e: (e["date"], e["time"]))
     return events
@@ -129,15 +144,20 @@ class Feed:
         return bool(self.url())
 
     def connect(self, url):
+        """Keeps a link only after it has answered with a calendar, so a wrong one never replaces one that works."""
         url = clean_url(url)
+        try:
+            body = self.read(url)
+        except (OSError, ValueError):
+            # The message stays generic, because a network error can quote the secret link.
+            raise ValueError("Brento could not read that link. Copy it again from your calendar's settings.")
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.path.write_text(url, encoding="utf-8")
         try:
             self.path.chmod(0o600)
         except OSError:
             pass
-        self.text, self.fetched, self.error = None, 0.0, ""
-        threading.Thread(target=self.fetch, daemon=True).start()
+        self.text, self.fetched, self.error = body, time.time(), ""
 
     def disconnect(self):
         try:
@@ -146,14 +166,18 @@ class Feed:
             pass
         self.text, self.fetched, self.error = None, 0.0, ""
 
+    @staticmethod
+    def read(url):
+        request = urllib.request.Request(url, headers={"User-Agent": "Brento"})
+        with urllib.request.urlopen(request, timeout=20) as res:
+            body = res.read(8 * 1024 * 1024).decode("utf-8", errors="replace")
+        if "BEGIN:VCALENDAR" not in body:
+            raise ValueError("not a calendar")
+        return body
+
     def fetch(self):
         try:
-            request = urllib.request.Request(self.url(), headers={"User-Agent": "Brento"})
-            with urllib.request.urlopen(request, timeout=20) as res:
-                body = res.read(8 * 1024 * 1024).decode("utf-8", errors="replace")
-            if "BEGIN:VCALENDAR" not in body:
-                raise ValueError
-            self.text, self.fetched, self.error = body, time.time(), ""
+            self.text, self.fetched, self.error = self.read(self.url()), time.time(), ""
         except (OSError, ValueError):
             # The message stays generic, because a network error can quote the secret link.
             self.error = "the calendar link did not answer"

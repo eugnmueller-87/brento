@@ -39,7 +39,7 @@ tar -xzf "$HERE/runtime-$CHIP.tar.gz" -C "$NEW"
 
 # Tried out before anything else changes: if this Mac cannot run it, the installation stops here and says so.
 "$NEW/python/bin/Brento" -c 'import http.server, json, ssl, sys, zipfile; print("Python", sys.version.split()[0])'
-"$NEW/app/bin/gh" --version | head -n 1
+"$NEW/app/bin/gh" --version
 
 # A team's own setup file stays, unless the new version brings one.
 for TEAM in "$BASE/app/team.json" "$KEEP/team.json"; do

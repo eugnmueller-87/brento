@@ -3,6 +3,7 @@
 A fresh install has no file, so the page opens the setup. Every source can be switched off. A source that is
 off is not shown at all; a source that is on but cannot be read still shows N/A, never an empty success.
 """
+import glob
 import json
 import os
 import re
@@ -26,8 +27,8 @@ SOURCES = [
      "about": "Open checkboxes with a due date become your deadlines: Tasks plugin (📅 2026-11-30), "
               "Dataview ([due:: 2026-11-30]) or @due(2026-11-30)."},
     {"id": "calendar", "label": "Calendar", "group": "Schedule", "new": True,
-     "about": "Your calendar's private iCal link (Google, Outlook, iCloud). Meetings where other people "
-              "expect you reach Home, with their join link."},
+     "about": "Your calendar's iCal link (Google, Outlook, iCloud). Meetings where other people expect you reach "
+              "Home, with their join link. Repeating appointments are left out."},
     {"id": "board", "label": "GitHub Project board", "group": "Schedule", "new": True,
      "about": "Cards in the lanes HIGH, MID and LOW. A HIGH card with a date inside a week reaches Home."},
     {"id": "ask", "label": "Ask box (Claude Code)", "group": "Assistant", "vault": True, "new": True,
@@ -70,9 +71,13 @@ def path():
     return home() / "brento.json"
 
 
+# Folders that were always left out of notes and tasks. Settings from before the choice keep them out.
+OLD_SKIP = ["raw", "wiki", "outputs", "memory"]
+
+
 def blank():
-    """A new owner: the general sources on, the fixed-shape notes off, no vault yet."""
-    return normalize({"sources": {s["id"]: {"on": s["new"]} for s in SOURCES}})
+    """A new owner: the general sources on, the fixed-shape notes off, no vault yet, no folder left out."""
+    return normalize({"skip": [], "sources": {s["id"]: {"on": s["new"]} for s in SOURCES}})
 
 
 def legacy(vault):
@@ -90,8 +95,10 @@ def clean_rel(value, default):
     return rel
 
 
-def normalize(data):
-    """Fills every gap with its default and refuses what could not be meant. Raises ValueError with a reason."""
+def normalize(data, saved=False):
+    """Fills every gap with its default and refuses what could not be meant. Raises ValueError with a reason.
+    Saved settings keep a notes folder that is not there at the moment: it was renamed, or its drive is not plugged in.
+    Brento then starts without those notes and says so, and the owner can choose the folder again."""
     data = dict(data or {})
     out = {"version": VERSION}
     name = str(data.get("name") or "").strip()
@@ -101,11 +108,15 @@ def normalize(data):
     vault = str(data.get("vault") or "").strip()
     if vault:
         folder = Path(vault).expanduser()
-        if not folder.is_dir():
-            raise ValueError("That vault folder does not exist: %s" % vault)
-        vault = str(folder.resolve())
+        # os.path never raises, also not on a network drive that is away.
+        if os.path.isdir(str(folder)):
+            vault = str(folder.resolve())
+        elif not saved:
+            raise ValueError("That notes folder does not exist: %s" % vault)
     out["vault"] = vault
     out["privacy"] = "required" if data.get("privacy") == "required" else "optional"
+    skip = data.get("skip") if isinstance(data.get("skip"), list) else OLD_SKIP
+    out["skip"] = [name for name in (str(s).strip() for s in skip) if name and len(name) <= 80 and not re.search(r"[\\/]", name)][:30]
     given = data.get("sources") or {}
     out["sources"] = {}
     for spec in SOURCES:
@@ -238,11 +249,20 @@ def system():
     return sys.platform
 
 
+def apple_tools():
+    """Whether Apple's developer tools are on this Mac. Without them /usr/bin/git is only a placeholder, and starting
+    it makes macOS offer a large download nobody asked for."""
+    return os.path.isfile("/Library/Developer/CommandLineTools/usr/bin/git") or bool(
+        glob.glob("/Applications/Xcode*.app/Contents/Developer/usr/bin/git"))
+
+
 def find_exe(name):
     """A program on the PATH. On Windows the PATH is read fresh from the registry as well, so a program the setup
     just installed is found without restarting Brento. On a Mac or Linux the usual folders are searched too.
     Last come Brento's own two folders: the one it downloads into and the one the installer filled."""
     found = shutil.which(name)
+    if found == "/usr/bin/git" and system() == "darwin" and not apple_tools():
+        found = None
     if found:
         return found
     own = [str(home() / "bin"), str(BUNDLED_BIN)]
@@ -261,6 +281,8 @@ def find_exe(name):
                 continue
     except ImportError:
         pass
+    # Claude Code's own installer puts its program here and leaves the PATH alone.
+    parts.append(str(Path.home() / ".local" / "bin"))
     return shutil.which(name, path=os.pathsep.join(parts + own))
 
 
@@ -279,7 +301,7 @@ def load():
     except FileNotFoundError:
         return None
     try:
-        return normalize(json.loads(text))
+        return normalize(json.loads(text), saved=True)
     except ValueError as exc:
         raise SystemExit("Brento did not start: %s cannot be used: %s" % (target, exc))
 
@@ -318,7 +340,7 @@ def obsidian_vaults():
     found = []
     for entry in known.values():
         folder = Path(str((entry or {}).get("path") or ""))
-        if folder.is_dir():
+        if os.path.isdir(str(folder)):
             found.append({"path": str(folder), "name": folder.name, "open": bool(entry.get("open"))})
     return sorted(found, key=lambda v: (not v["open"], v["name"].lower()))
 

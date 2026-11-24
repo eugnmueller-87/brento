@@ -12,11 +12,13 @@ import time
 from pathlib import Path
 from urllib.parse import quote, urlsplit
 
+import settings
 import sources
 
 # Original assets, private material and tool folders stay out. Only notes people wrote or asked for.
-HIDDEN = {"raw", "memory", "node_modules", "_private", "__pycache__", "_archive", "_archive_pending",
-          "Screenshots", "Excalidraw"}
+HIDDEN = {"node_modules", "_private", "__pycache__"}
+# These are ordinary names elsewhere. They stay out only for settings from before the choice, which always left folders out.
+HIDDEN_BEFORE = {"raw", "memory", "_archive", "_archive_pending", "Screenshots", "Excalidraw"}
 SECTIONS = [("MOCs", "Topics"), ("Notes", "Notes"), ("Projects", "Projects"), ("Companies", "Companies"),
             ("People", "People"), ("Calls", "Calls"), ("Decisions", "Decisions"), ("Chess Moves", "Chess Moves"),
             ("00 Inbox", "Inbox"), ("Skills", "Skills"), ("Reviews", "Reviews"), ("Milestones", "Milestones"),
@@ -279,8 +281,10 @@ class Library:
         self.lock = threading.Lock()
 
     def _walk(self):
+        before = set(settings.OLD_SKIP) <= sources.EXTRA_SKIP
         for folder, dirs, files in os.walk(self.vault):
-            dirs[:] = [d for d in dirs if not d.startswith(".") and d not in HIDDEN and not sources.PRIVATE.search(d)]
+            dirs[:] = [d for d in dirs if not d.startswith(".") and d not in HIDDEN and not sources.PRIVATE.search(d)
+                       and not (before and d in HIDDEN_BEFORE)]
             for name in files:
                 if sources.PRIVATE.search(name):
                     continue
@@ -378,7 +382,7 @@ class Library:
                 for tag in note["tags"]:
                     tags[tag] = tags.get(tag, 0) + 1
         entries.sort(key=lambda e: e["title"].lower())
-        return {"sections": sections, "rootCount": counts.get("", 0), "notes": entries,
+        return {"sections": sections, "rootCount": counts.get("", 0), "notes": entries, "problem": sources.folder_problem(self.vault),
                 "tags": sorted(tags.items(), key=lambda kv: -kv[1])[:40]}
 
     def note(self, path):

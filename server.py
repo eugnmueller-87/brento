@@ -12,16 +12,17 @@ import os
 import re
 import secrets
 import shutil
+import socketserver
 import subprocess
 import threading
 import time
-from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, quote, urlsplit
 
 import sys
 
+import address
 import calendar_feed
 import library
 import phone
@@ -61,12 +62,16 @@ CSP = ("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';
        "img-src 'self' data: https://www.google.com https://*.gstatic.com; "
        "connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
 # A generated page from the vault brings its own inline script and style, and may reach nothing else.
-CSP_PAGE = ("default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; "
+# The sandbox takes Brento's own rights away from it: it cannot reach another Brento window either.
+CSP_PAGE = ("sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; "
             "base-uri 'none'; frame-ancestors 'none'; form-action 'none'")
 LOOPBACK = {"127.0.0.1", "localhost", "::1"}
 BILLING_ENV = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "CLAUDE_CODE_OAUTH_TOKEN",
                "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY")
 ASK_TOOLS = "Read,Grep,Glob"
+# No settings of the notes folder count and no hooks run, so a folder that other people also write to cannot start a
+# program. What is not allowed is refused instead of asked for, and reading ends at the notes folder.
+ASK_LOCK = ["--setting-sources", "user", "--settings", str(HERE / "ask-settings.json"), "--permission-mode", "dontAsk"]
 ASK_SYSTEM = ("You are the ask box of Brento, %s local dashboard over this vault. You can only read. "
               "Answer from the vault and name the note path behind each claim. If the vault does not say, reply "
               "'I don't know yet'. Lead with the one thing that matters, then at most five short bullets. Reply in "
@@ -76,13 +81,48 @@ ASK_TIMEOUT = 240
 MAX_BODY = 64 * 1024
 # Board, calendar and library reread themselves within minutes. The remote brief has no timer of its own.
 REMOTE_EVERY = 6 * 3600
+TICKET_SECONDS = 120
+# Pictures and pages of the vault are loaded by address. Every other question to the server carries a header that a
+# link, a redirect or a foreign page cannot send.
+PLAIN_GETS = {"/api/library/asset", "/api/library/page", "/api/whose"}
+LOCKED = """<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0b0e15">
+<title>Brento</title>
+<style>
+:root { color-scheme: dark; }
+body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #0b0e15; color: #f1f3f8;
+  font: 16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+main { max-width: 430px; padding: 24px; display: grid; gap: 16px; }
+.mark { width: 44px; height: 44px; border-radius: 12px; background: #6cf5bf; transform: rotate(45deg) scale(.72); }
+h1 { margin: 0; font-size: 25px; letter-spacing: -.01em; }
+p { margin: 0; color: #a3a9bd; }
+b { color: #f1f3f8; }
+a { justify-self: start; padding: 11px 18px; border-radius: 12px; background: #6cf5bf; color: #06231a; font-weight: 600; text-decoration: none; }
+</style>
+</head>
+<body>
+<main>
+<div class="mark" aria-hidden="true"></div>
+<h1>Open Brento with its icon</h1>
+<p>Brento opens only for the person it belongs to, and this browser has not been let in yet.</p>
+<p>On Windows press the <b>Windows key</b>, on a Mac <b>Cmd</b> and <b>Space</b>. Type <b>Brento</b> and press <b>Enter</b>.
+After that, this address works here too.</p>
+<a href="/">Try again</a>
+</main>
+</body>
+</html>
+""".encode("utf-8")
 
 
 class App:
     def __init__(self, vault, host, allow_hosts, model):
         self.vault_arg, self.model = vault, model
         self.home = settings.home()
-        self.tools = tools.ToolStore(self.home / "tools.json", HERE / "tools.default.json")
+        self.tools = tools.ToolStore(self.home / "tools.json", HERE / "tools.default.json", CATALOG)
         self.calendar = calendar_feed.Feed(self.home / "calendar-url")
         self.slack = slack_notify.Slack(self.home)
         # The phone door: a second listener on the home network, only for paired phones. Off until switched on.
@@ -95,8 +135,8 @@ class App:
         self.lock = threading.Lock()
         self.ask_lock = threading.Lock()
         self.hosts = LOOPBACK | {host.lower()} | {h.lower() for h in allow_hosts}
-        self.needs_key = host.lower() not in LOOPBACK
-        self.key = load_key(self.home) if self.needs_key else ""
+        # 127.0.0.1 belongs to everyone who is signed in to this computer, so the owner's key is asked for here too.
+        self.key, self.tickets = address.load_key(self.home), {}
         # A team's copy of this repo can carry team.json: the shared board, apps and Slack settings.
         self.team = settings.load_team(HERE)
         saved = settings.load()
@@ -107,9 +147,12 @@ class App:
     def apply_profile(self, profile, first=False):
         """Reads the settings into the running server, so a saved setup shows without a restart."""
         vault = Path(profile["vault"]) if profile.get("vault") else (self.vault_arg or self.home / "notes")
-        vault.mkdir(parents=True, exist_ok=True)
+        if not profile.get("vault"):
+            # Only Brento's own empty folder is made. A chosen folder that is gone must not come back as an empty one.
+            vault.mkdir(parents=True, exist_ok=True)
         words = sources.load_private(self.home / "private-terms.txt", required=profile["privacy"] == "required")
         sources.set_owner(profile.get("name", ""))
+        sources.set_skip(profile.get("skip"))
         sources.set_login(profile["board"].get("me", ""))
         b = profile["board"]
         board = None
@@ -190,6 +233,7 @@ class App:
         """Everything the setup page shows. Checks run here, so the page can say what is missing and how to fix it."""
         return {"needed": self.needs_setup, "profile": settings.public(self.profile), "sources": settings.SOURCES,
                 "vaults": settings.obsidian_vaults(), "home": str(self.home), "gh": sources.gh_status(),
+                "platform": sys.platform, "vaultMissing": bool(self.profile.get("vault")) and not os.path.isdir(self.profile["vault"]),
                 "claude": self.auth() if settings.on(self.profile, "ask") else None,
                 "calendarConnected": self.calendar.connected(), "privacyWords": self.privacy_words,
                 "catalog": self.catalog(), "slackConnected": self.slack.connected(), "slackError": self.slack.error,
@@ -303,11 +347,25 @@ class App:
         while True:
             time.sleep(30)
             try:
-                if self.slack.connected():
+                # Before the setup is finished nothing has been read, and a message would say that all is calm.
+                if self.slack.connected() and not self.needs_setup:
                     self.slack.tick(self.state(), self.profile.get("slack") or settings.clean_slack(None),
                                     self.profile.get("name", ""))
             except Exception as exc:  # the loop must outlive any one bad tick
                 self.slack.error = "Slack: %s" % type(exc).__name__
+
+    def ticket(self):
+        """A word that lets one browser in, once and soon. It goes into an address, so the key never has to."""
+        with self.lock:
+            now = time.monotonic()
+            self.tickets = {word: ends for word, ends in self.tickets.items() if ends > now}
+            word = secrets.token_urlsafe(24)
+            self.tickets[word] = now + TICKET_SECONDS
+            return word
+
+    def redeem(self, word):
+        with self.lock:
+            return self.tickets.pop(word, 0.0) > time.monotonic()
 
     def open_tool(self, body):
         """A tool from the dock list as a Chrome app window: no address strip, signed in with what Chrome keeps.
@@ -372,6 +430,13 @@ def time_today():
     return date.today()
 
 
+def ask_command(exe, model, name):
+    """The Ask box's one command. The question itself goes over stdin, never into an argument."""
+    return [exe, "-p", "--model", model, "--tools", ASK_TOOLS] + ASK_LOCK + [
+        "--strict-mcp-config", "--no-session-persistence", "--output-format", "stream-json", "--verbose",
+        "--include-partial-messages", "--append-system-prompt", ASK_SYSTEM % (("%s's" % name) if name else "the owner's")]
+
+
 def locked_env():
     env = dict(os.environ)
     for name in BILLING_ENV:
@@ -379,13 +444,28 @@ def locked_env():
     return env
 
 
-def load_key(folder):
-    folder.mkdir(mode=0o700, exist_ok=True)
-    path = folder / "access-key"
-    if not path.exists():
-        path.write_text(secrets.token_urlsafe(24), encoding="utf-8")
-        path.chmod(0o600)
-    return path.read_text(encoding="utf-8").strip()
+def same(given, secret):
+    return bool(given) and bool(secret) and hmac.compare_digest(given.encode("utf-8"), secret.encode("utf-8"))
+
+
+def cookie(header, name):
+    """One cookie out of the header. Other programs on 127.0.0.1 set cookies too, whatever their port, and one of them
+    in an odd shape must not hide this one."""
+    for part in (header or "").split(";"):
+        key, sep, value = part.strip().partition("=")
+        if sep and key == name:
+            return value.strip().strip('"')
+    return ""
+
+
+def web_version():
+    """An open tab reloads itself when this changes, so nobody keeps clicking on old code. The installers give every
+    file the same date, so the version's number is part of it."""
+    try:
+        number = (HERE / "VERSION").read_text(encoding="utf-8").strip()
+    except OSError:
+        number = ""
+    return "%s-%d" % (number, max(int((WEB / name).stat().st_mtime) for name, _ in STATIC.values()))
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -418,29 +498,39 @@ class Handler(BaseHTTPRequestHandler):
         return host in self.app.hosts
 
     def authorized(self):
-        if not self.app.needs_key:
-            return True
-        morsel = SimpleCookie(self.headers.get("Cookie") or "").get("leitstand")
-        return bool(morsel) and hmac.compare_digest(morsel.value, self.app.key)
+        return (same(cookie(self.headers.get("Cookie"), "leitstand"), self.app.key)
+                or same(self.headers.get(address.KEY_HEADER), self.app.key))
 
     def gate(self, url):
-        """Refuses foreign Host headers (DNS rebinding) and, off loopback, anything without the key."""
+        """Refuses foreign Host headers (DNS rebinding) and anything without the owner's key."""
         if self.phone:
             return self.phone_gate(url)
         if not self.host_allowed():
             self.send_json({"error": "host not allowed"}, 403)
             return False
-        if self.authorized():
-            return True
-        given = (parse_qs(url.query).get("key") or [""])[0]
-        if url.path == "/" and given and hmac.compare_digest(given, self.app.key):
-            self.send_response(303)
-            self.send_header("Location", "/")
-            self.send_header("Set-Cookie", "leitstand=%s; Path=/; HttpOnly; SameSite=Strict; Max-Age=31536000" % self.app.key)
-            self.end_headers()
+        query = parse_qs(url.query)
+        front = self.command == "GET" and url.path == "/"
+        if front and ("ticket" in query or "key" in query):
+            self.enter(query)
             return False
-        self.send_json({"error": "access key required"}, 401)
+        if self.authorized() or (self.command == "GET" and url.path == "/api/whose"):
+            return True
+        if front:
+            self.send_page(LOCKED, 401)
+        else:
+            self.send_json({"error": "Open Brento with its icon first."}, 401)
         return False
+
+    def enter(self, query):
+        """The way in: the launcher's ticket, or the key itself from another computer. The address is cleaned at once."""
+        good = self.app.redeem((query.get("ticket") or [""])[0]) or same((query.get("key") or [""])[0], self.app.key)
+        self.send_response(303)
+        self.send_header("Location", "/")
+        if good:
+            self.send_header("Set-Cookie", "leitstand=%s; Path=/; HttpOnly; SameSite=Strict; Max-Age=31536000" % self.app.key)
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
 
     def phone_gate(self, url):
         """The phone door: the pairing page for a phone that is not paired yet, a shorter list of routes for one that is."""
@@ -450,8 +540,7 @@ class Handler(BaseHTTPRequestHandler):
         if not self.app.phones.on:
             self.send_json({"error": "Phone access is switched off on the computer."}, 403)
             return False
-        morsel = SimpleCookie(self.headers.get("Cookie") or "").get(phone.COOKIE)
-        if self.app.phones.known(morsel.value if morsel else ""):
+        if self.app.phones.known(cookie(self.headers.get("Cookie"), phone.COOKIE)):
             if phone.allowed(self.command, url.path):
                 return True
             self.send_json({"error": "Only on the computer. Change this in Brento there."}, 403)
@@ -498,6 +587,9 @@ class Handler(BaseHTTPRequestHandler):
         url = urlsplit(self.path)
         if not self.gate(url):
             return
+        if url.path.startswith("/api/") and url.path not in PLAIN_GETS and self.headers.get("X-Leitstand") != "1":
+            self.send_json({"error": "cross-site request refused"}, 403)
+            return
         if url.path in STATIC:
             name, ctype = STATIC[url.path]
             body = (WEB / name).read_bytes()
@@ -518,9 +610,14 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
         elif url.path == "/api/state":
-            # An open tab reloads itself when this changes, so nobody keeps clicking on old code.
-            version = max(int((WEB / name).stat().st_mtime) for name, _ in STATIC.values())
-            self.send_json(dict(self.app.state(), webVersion=version, phone=self.phone))
+            self.send_json(dict(self.app.state(), webVersion=web_version(), phone=self.phone))
+        elif url.path == "/api/whose":
+            # Only the owner's launcher can tell a right answer from a wrong one.
+            nonce = (parse_qs(url.query).get("n") or [""])[0]
+            if address.NONCE.match(nonce):
+                self.send_json({"proof": address.proof(self.app.key, self.app.port, nonce)})
+            else:
+                self.send_json({"error": "bad request"}, 400)
         elif url.path == "/api/phone":
             self.send_json(self.app.phone_view())
         elif url.path == "/api/setup":
@@ -567,7 +664,7 @@ class Handler(BaseHTTPRequestHandler):
         elif url.path == "/api/ask/status":
             self.send_json(self.app.auth())
         elif url.path == "/api/tools":
-            self.send_json(self.app.tools.load())
+            self.send_json(self.app.tools.shown())
         else:
             self.send_json({"error": "not found"}, 404)
 
@@ -593,7 +690,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         if url.path not in ("/api/ask", "/api/tools", "/api/calendar", "/api/refresh", "/api/open", "/api/setup",
                             "/api/setup/board", "/api/wizard/board", "/api/wizard/open", "/api/slack", "/api/team",
-                            "/api/phone"):
+                            "/api/phone", "/api/ticket"):
             self.send_json({"error": "not found"}, 404)
             return
         origin = urlsplit(self.headers.get("Origin") or "").netloc
@@ -612,6 +709,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if url.path == "/api/refresh":
             self.send_json({"problems": self.app.refresh()})
+            return
+        if url.path == "/api/ticket":
+            self.send_json({"ticket": self.app.ticket()})
             return
         if url.path == "/api/phone":
             try:
@@ -652,20 +752,16 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json({"error": str(exc)}, 400)
             return
         if url.path == "/api/slack":
-            # The link goes one way, onto the disk. A test message proves it works before anything else is sent.
+            # The link goes one way, onto the disk. A test message proves that it works before it is kept.
             try:
-                if body.get("url"):
-                    self.app.slack.connect(body["url"])
-                    error = self.app.slack.send("Brento is connected. Your morning summary and reminders come to this channel.")
-                    if error:
-                        self.app.slack.disconnect()
-                        raise ValueError(error)
+                if body.get("disconnect"):
+                    self.app.slack.disconnect()
                 elif body.get("test"):
                     error = self.app.slack.send("A test from Brento. All good.")
                     if error:
                         raise ValueError(error)
                 else:
-                    self.app.slack.disconnect()
+                    self.app.slack.connect(body.get("url"), "Brento is connected. Your morning summary and reminders come to this channel.")
                 self.send_json({"connected": self.app.slack.connected()})
             except ValueError as exc:
                 self.send_json({"error": str(exc)}, 400)
@@ -692,17 +788,12 @@ class Handler(BaseHTTPRequestHandler):
             # The link goes one way: onto the disk. Nothing ever sends it back to a page.
             try:
                 found = None
-                if body.get("url"):
-                    self.app.calendar.connect(body["url"])
-                    if body.get("check"):
-                        # The wizard waits for the answer, so a wrong link is caught while the owner is still there.
-                        self.app.calendar.fetch()
-                        if self.app.calendar.error:
-                            self.app.calendar.disconnect()
-                            raise ValueError("Brento could not read that link. Copy it again from your calendar's settings.")
-                        found = len(calendar_feed.parse_ics(self.app.calendar.text or "", time_today(), 90))
-                else:
+                if body.get("disconnect"):
                     self.app.calendar.disconnect()
+                else:
+                    # Read at once, so a wrong link is caught while the owner is still there, and never replaces a good one.
+                    self.app.calendar.connect(body.get("url"))
+                    found = len(calendar_feed.parse_ics(self.app.calendar.text or "", time_today(), 90))
                 self.app.state_at = 0.0
                 self.send_json({"connected": self.app.calendar.connected(), "events": found})
             except ValueError as exc:
@@ -731,6 +822,10 @@ class Handler(BaseHTTPRequestHandler):
         if not auth["ready"]:
             self.send_json({"error": auth["reason"]}, 409)
             return
+        problem = sources.folder_problem(self.app.vault)
+        if problem:
+            self.send_json({"error": "Ask cannot answer: %s." % problem}, 409)
+            return
         if not self.app.ask_lock.acquire(blocking=False):
             self.send_json({"error": "One question at a time. The last answer is still running."}, 429)
             return
@@ -751,11 +846,7 @@ class Handler(BaseHTTPRequestHandler):
                                          str(turn.get("text") or "")[:1500]))
         prompt = ("Earlier in this conversation:\n%s\n\nNew question: %s" % ("\n".join(parts), question)
                   if parts else question)
-        # The question goes over stdin, never into an argument, so nothing a user types reaches a shell.
-        cmd = [settings.find_exe("claude"), "-p", "--model", self.app.model, "--tools", ASK_TOOLS,
-               "--allowedTools", ASK_TOOLS, "--strict-mcp-config", "--no-session-persistence",
-               "--output-format", "stream-json", "--verbose", "--include-partial-messages",
-               "--append-system-prompt", ASK_SYSTEM % (("%s's" % self.app.profile["name"]) if self.app.profile.get("name") else "the owner's")]
+        cmd = ask_command(settings.find_exe("claude"), self.app.model, self.app.profile.get("name", ""))
         self.send_common(200, "application/x-ndjson; charset=utf-8")
         self.end_headers()
         started = time.time()
@@ -810,10 +901,20 @@ class PhoneHandler(Handler):
     phone = True
 
 
-class PhoneServer(ThreadingHTTPServer):
+class Server(ThreadingHTTPServer):
     # On Windows this flag would let a second program take the same port, so it stays off there.
     allow_reuse_address = sys.platform != "win32"
     daemon_threads = True
+
+    def server_bind(self):
+        # Python's own version also looks this computer's name up before it listens. Nothing here needs the name, and
+        # on a computer whose network does not answer, Brento would not open until the lookup gives up.
+        socketserver.TCPServer.server_bind(self)
+        self.server_name, self.server_port = self.server_address[:2]
+
+
+class PhoneServer(Server):
+    """The second door, on the home network, only for paired phones."""
 
 
 def main():
@@ -821,7 +922,7 @@ def main():
     parser.add_argument("--vault", default=os.environ.get("BRENTO_VAULT") or os.environ.get("LEITSTAND_VAULT"),
                         help="only needed before the setup has run; the setup's vault wins once it is saved")
     parser.add_argument("--host", default="127.0.0.1", help="anything but loopback requires the access key")
-    parser.add_argument("--port", type=int, default=8770)
+    parser.add_argument("--port", type=int, default=0, help="only this port; without it, the usual one or the next free one")
     parser.add_argument("--allow-host", action="append", default=[], help="extra Host header to accept, for example a Tailscale name")
     parser.add_argument("--model", default=os.environ.get("LEITSTAND_MODEL", "sonnet"))
     args = parser.parse_args()
@@ -832,19 +933,27 @@ def main():
             raise SystemExit("Vault not found: %s" % vault)
     app = App(vault, args.host, args.allow_host, args.model)
     Handler.app = app
-    threading.Thread(target=app.notify_loop, daemon=True).start()
-    app.port = args.port
-    try:
-        server = ThreadingHTTPServer((args.host, args.port), Handler)
-    except OSError as exc:
-        # Another Brento already answers. Ending cleanly keeps a login service from starting it again and again.
-        print("Port %d is in use, so this Brento is not started (%s)." % (args.port, exc), flush=True)
+    server = None
+    for number in address.candidates(args.port):
+        try:
+            server = Server((args.host, number), Handler)
+            break
+        except OSError as exc:
+            # Ending cleanly keeps a login service from starting it again and again.
+            if args.port or address.whose(number, timeout=10) == "mine":
+                print("Port %d is in use, so this Brento is not started (%s)." % (number, exc), flush=True)
+                return
+            # Another person on this computer, or another program: the next port.
+    if server is None:
+        print("No port from %d on is free, so Brento is not started." % address.FIRST, flush=True)
         return
+    app.port = number
+    if not args.port and number != address.port():
+        address.keep(number)
+    threading.Thread(target=app.notify_loop, daemon=True).start()
     app.phone_listen()
-    suffix = "/?key=" + app.key if app.needs_key else "/"
-    first = "#setup" if app.needs_setup else ""
-    print("Brento reads %s (settings in %s)\nOpen http://%s:%d%s%s" % (app.vault, app.home, args.host, args.port, suffix, first),
-          flush=True)
+    way = "?ticket=" + app.ticket() if args.host in LOOPBACK else "?key=" + app.key
+    print("Brento reads %s (settings in %s)\nOpen http://%s:%d/%s" % (app.vault, app.home, args.host, number, way), flush=True)
     server.serve_forever()
 
 

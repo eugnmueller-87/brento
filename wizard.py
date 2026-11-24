@@ -166,22 +166,24 @@ def guess_name(gh_ready):
 def vault_stats(folder):
     """How much Brento will find in a vault: notes and open tasks with a date. Counted, never read out."""
     root = Path(folder)
-    if not root.is_dir():
+    if not os.path.isdir(str(root)):
         return {"notes": 0, "tasks": 0, "error": "That folder does not exist."}
-    notes = 0
-    for base, dirs, files in os.walk(root):
-        dirs[:] = [d for d in dirs if not d.startswith(".") and d not in sources.SKIP_DIRS]
-        notes += sum(1 for name in files if name.endswith(".md"))
-        if notes > 20000:
-            break
     try:
-        os.listdir(root)
+        os.listdir(str(root))
     except PermissionError:
         if settings.system() == "darwin":
             return {"notes": 0, "tasks": 0, "error": "macOS does not let Brento read this folder yet. Open System Settings, "
-                    "Privacy & Security, Full Disk Access, and switch on %s. Then choose the folder again."
+                    "Privacy & Security, Files & Folders, and switch the folder on for %s. Then choose it here again."
                     % (os.path.basename(sys.executable) or "python3")}
         return {"notes": 0, "tasks": 0, "error": "Brento may not read this folder."}
+    except OSError:
+        return {"notes": 0, "tasks": 0, "error": "That folder cannot be read at the moment."}
+    notes = 0
+    for base, dirs, files in os.walk(root):
+        dirs[:] = [d for d in dirs if not sources.skipped(d)]
+        notes += sum(1 for name in files if name.endswith(".md"))
+        if notes > 20000:
+            break
     tasks = len(sources.TaskIndex(root).scan())
     return {"notes": notes, "tasks": tasks, "error": ""}
 
@@ -291,18 +293,27 @@ class SignIn:
 
     def start(self, action, args):
         github = action.startswith("gh")
+        env = dict(os.environ, GH_PROMPT_DISABLED="1", NO_COLOR="1")
+        if github and settings.system() == "darwin" and not settings.find_exe("git"):
+            # GitHub's program starts git when it finds one. On a Mac without developer tools that is only Apple's
+            # placeholder, which offers a large download. So here it finds nothing but itself.
+            env["PATH"] = os.path.dirname(args[0])
         with self.lock:
             if self.proc is not None:
                 self.proc.kill()
             proc = subprocess.Popen(args, stdin=subprocess.DEVNULL, creationflags=NO_WINDOW,
                                     stdout=subprocess.PIPE if github else subprocess.DEVNULL,
-                                    stderr=subprocess.STDOUT if github else subprocess.DEVNULL,
-                                    env=dict(os.environ, GH_PROMPT_DISABLED="1", NO_COLOR="1"))
+                                    stderr=subprocess.STDOUT if github else subprocess.DEVNULL, env=env)
             self.proc, self.action, self.code, self.error = proc, action, "", ""
         threading.Thread(target=self._watch, args=(proc,), daemon=True).start()
 
     def _watch(self, proc):
-        timer = threading.Timer(SIGN_IN_LIMIT, proc.kill)
+        late = threading.Event()
+
+        def end():
+            late.set()
+            proc.kill()
+        timer = threading.Timer(SIGN_IN_LIMIT, end)
         timer.daemon = True
         timer.start()
         last = ""
@@ -322,15 +333,17 @@ class SignIn:
             if self.proc is not proc:
                 return
             self.proc, self.code = None, ""
-            self.error = "" if result == 0 else self.explain(last)
+            self.error = "" if result == 0 else self.explain(last, late.is_set())
 
     @staticmethod
-    def explain(last):
+    def explain(last, late=False):
         low = last.lower()
-        if "expired" in low or not last:
+        if late or "expired" in low or "deadline exceeded" in low:
             return "The sign-in ran out of time. Click the button to start again."
         if "denied" in low:
             return "The sign-in was cancelled. Click the button to start again."
+        if not last:
+            return "The sign-in did not work. Click the button to start again."
         return "The sign-in did not work: %s" % GH_CODE.sub("the code", last)[:200]
 
 

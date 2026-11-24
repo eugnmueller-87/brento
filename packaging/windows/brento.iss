@@ -63,25 +63,42 @@ Name: "german"; MessagesFile: "compiler:Languages\German.isl"
 
 [Messages]
 english.WelcomeLabel1=Welcome to Brento
-english.WelcomeLabel2=One screen that tells you what needs you today: your tasks, your board and your meetings.%n%nBrento brings everything it needs. It installs only for you, so Windows asks for no administrator password.%n%nWhen it is done, Brento opens and asks one question per page. You can skip every one of them.%n%nEverything stays on this computer, and Brento only reads: it never changes a note, a card or an appointment.
+english.WelcomeLabel2=One screen that tells you what needs you today: your tasks, your board and your meetings.%n%nBrento brings everything it needs. It installs only for you, so Windows asks for no administrator password.%n%nWhen it is done, Brento opens and asks one question per page. You can skip every one of them.%n%nBrento runs on this computer, keeps its settings here and only reads: it never changes a note, a card or an appointment. Notes go to Claude and messages to Slack only if you switch that on.
+english.WizardSelectTasks=Two small choices
+english.SelectTasksDesc=You can change both later.
+english.SelectTasksLabel2=If you are not sure, leave both ticked. Then click Install.
 english.FinishedHeadingLabel=Brento is ready
-english.FinishedLabelNoIcons=Click Finish. Brento opens and walks you through the rest.%n%nTo open it later, press the Windows key, type Brento and press Enter.
-english.FinishedLabel=Click Finish. Brento opens and walks you through the rest.%n%nTo open it later, press the Windows key, type Brento and press Enter.
+english.FinishedLabelNoIcons=Brento opens and walks you through the rest.%n%nTo open it later, press the Windows key, type Brento and press Enter.
+english.FinishedLabel=Brento opens and walks you through the rest.%n%nTo open it later, press the Windows key, type Brento and press Enter.
+english.ClickFinish=Now click Finish.
+english.ConfirmUninstall=Remove %1 from this computer?%n%nYour notes, your board and your calendar stay as they are.
+english.UninstalledAll=%1 is removed.%n%nYour sign-in to GitHub stays in Windows. You can take it back under github.com/settings/applications.
 german.WelcomeLabel1=Willkommen bei Brento
-german.WelcomeLabel2=Ein Bildschirm, der dir zeigt, was dich heute braucht: deine Aufgaben, dein Board und deine Termine.%n%nBrento bringt alles mit, was es braucht. Es wird nur für dich installiert, darum fragt Windows nicht nach einem Administrator-Kennwort.%n%nDanach öffnet sich Brento und stellt eine Frage pro Seite. Jede davon kannst du überspringen.%n%nAlles bleibt auf diesem Computer, und Brento liest nur: Es ändert nie eine Notiz, eine Karte oder einen Termin. Die Oberfläche von Brento ist auf Englisch.
+german.WelcomeLabel2=Ein Bildschirm, der dir zeigt, was dich heute braucht: deine Aufgaben, dein Board und deine Termine.%n%nBrento bringt alles mit, was es braucht. Es wird nur für dich installiert, darum fragt Windows nicht nach einem Administrator-Kennwort.%n%nDanach öffnet sich Brento und stellt eine Frage pro Seite. Jede davon kannst du überspringen.%n%nBrento läuft auf diesem Computer, behält seine Einstellungen hier und liest nur: Es ändert nie eine Notiz, eine Karte oder einen Termin. Notizen gehen an Claude und Meldungen an Slack nur, wenn du das einschaltest. Die Oberfläche ist auf Englisch.
+german.ClickNext=Klicke auf Weiter.
+german.WizardSelectTasks=Zwei kleine Entscheidungen
+german.SelectTasksDesc=Beides kannst du später ändern.
+german.SelectTasksLabel2=Wenn du unsicher bist, lass beide Häkchen gesetzt. Klicke dann auf Installieren.
 german.FinishedHeadingLabel=Brento ist bereit
-german.FinishedLabelNoIcons=Klicke auf Fertigstellen. Brento öffnet sich und führt dich durch den Rest.%n%nSpäter öffnen: Windows-Taste drücken, Brento tippen, Eingabetaste.
-german.FinishedLabel=Klicke auf Fertigstellen. Brento öffnet sich und führt dich durch den Rest.%n%nSpäter öffnen: Windows-Taste drücken, Brento tippen, Eingabetaste.
+german.FinishedLabelNoIcons=Brento öffnet sich und führt dich durch den Rest.%n%nSpäter öffnen: Windows-Taste drücken, Brento tippen, Eingabetaste.
+german.FinishedLabel=Brento öffnet sich und führt dich durch den Rest.%n%nSpäter öffnen: Windows-Taste drücken, Brento tippen, Eingabetaste.
+german.ClickFinish=Klicke jetzt auf Fertigstellen.
+german.ConfirmUninstall=%1 von diesem Computer entfernen?%n%nDeine Notizen, dein Board und dein Kalender bleiben, wie sie sind.
+german.UninstalledAll=%1 ist entfernt.%n%nDeine Anmeldung bei GitHub bleibt in Windows. Zurücknehmen kannst du sie unter github.com/settings/applications.
 
 [CustomMessages]
 english.Autostart=Start Brento when I sign in to Windows
 english.Desktop=Put Brento on the desktop
 english.OpenNow=Open Brento now
 english.About=Brento: what needs you today
+english.StillRunning=Brento could not be closed. Restart the computer and open this file again.
+english.DeleteSettings=Delete the settings of Brento too?%n%nThat is the folder %1 with your calendar link, the Slack link and the paired phones. If you may come back to Brento, keep them.
 german.Autostart=Brento bei der Anmeldung an Windows starten
 german.Desktop=Brento auf den Desktop legen
 german.OpenNow=Brento jetzt öffnen
 german.About=Brento: was dich heute braucht
+german.StillRunning=Brento ließ sich nicht schließen. Starte den Computer neu und öffne diese Datei noch einmal.
+german.DeleteSettings=Auch die Einstellungen von Brento löschen?%n%nDas ist der Ordner %1 mit deinem Kalenderlink, dem Slack-Link und den gekoppelten Handys. Wenn du vielleicht zu Brento zurückkommst, behalte sie.
 
 [Tasks]
 #ifndef Preview
@@ -125,7 +142,15 @@ Type: dirifempty; Name: "{app}\app"
 Type: dirifempty; Name: "{app}"
 
 [Code]
-// An update: the Brento that runs holds its files open, so it stops before they are replaced.
+// There is no page in between, so the button that starts the installation says so.
+procedure CurPageChanged(CurPageID: Integer);
+begin
+  if CurPageID = wpSelectTasks then
+    WizardForm.NextButton.Caption := SetupMessage(msgButtonInstall);
+end;
+
+// An update: the Brento that runs holds its files open, so it stops before they are replaced. When it cannot be stopped,
+// nothing has been touched yet, and the installer says what to do.
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   Code: Integer;
@@ -135,5 +160,22 @@ begin
   Python := ExpandConstant('{app}\python\pythonw.exe');
   Launcher := ExpandConstant('{app}\app\launcher.py');
   if FileExists(Python) and FileExists(Launcher) then
-    Exec(Python, '"' + Launcher + '" --stop', '', SW_HIDE, ewWaitUntilTerminated, Code);
+    if (not Exec(Python, '"' + Launcher + '" --stop', '', SW_HIDE, ewWaitUntilTerminated, Code)) or (Code <> 0) then
+      Result := CustomMessage('StillRunning');
 end;
+
+#ifndef Preview
+// Whoever leaves for good, or gives the computer away, can take the private links along. Without a question (a silent
+// removal) they stay.
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  Folder: String;
+begin
+  if CurUninstallStep <> usPostUninstall then
+    exit;
+  Folder := GetEnv('USERPROFILE') + '\.brento';
+  if DirExists(Folder) then
+    if SuppressibleMsgBox(FmtMessage(CustomMessage('DeleteSettings'), [Folder]), mbConfirmation, MB_YESNO or MB_DEFBUTTON2, IDNO) = IDYES then
+      DelTree(Folder, True, True, True);
+end;
+#endif

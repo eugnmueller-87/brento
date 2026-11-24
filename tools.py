@@ -42,9 +42,14 @@ def clean_url(url):
 
 
 class ToolStore:
-    def __init__(self, path, defaults):
+    def __init__(self, path, defaults, catalog=None):
         self.path, self.defaults = Path(path), Path(defaults)
         self.lock = threading.Lock()
+        try:
+            listed = json.loads(Path(catalog).read_text(encoding="utf-8")) if catalog else []
+        except (OSError, ValueError):
+            listed = []
+        self.known = {urlsplit(entry["url"]).hostname for entry in listed if str(entry.get("url", "")).startswith("https://")}
 
     def load(self):
         for source in (self.path, self.defaults):
@@ -53,6 +58,14 @@ class ToolStore:
             except (OSError, ValueError):
                 continue
         return {"version": 1, "tools": []}
+
+    def shown(self):
+        """The list as a page gets it: a logo only for a well-known service, also for entries of an older version."""
+        data = self.load()
+        for tool in data.get("tools", []):
+            if tool.get("icon") and tool["icon"] not in self.known:
+                tool.pop("icon")
+        return data
 
     def save(self, data):
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -81,10 +94,10 @@ class ToolStore:
                 own = bool(body.get("own"))
                 entry = {"id": tid, "name": name, "url": url, "group": str(body.get("group") or "Added").strip()[:30] or "Added",
                          "pinned": bool(body.get("pinned")), "own": own}
-                # An outside service shows its own logo. Ours stay lettered: their address is often someone else's
-                # host, such as claude.ai for an artifact.
+                # A well-known service shows its own logo, which the page gets from Google's icon service. Every other
+                # address stays lettered, so nobody learns of it: an internal host, or one of ours.
                 host = urlsplit(url).hostname
-                if not own and host:
+                if not own and host in self.known:
                     entry["icon"] = host
                 tools.append(entry)
             elif action in ("remove", "pin"):

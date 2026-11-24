@@ -267,7 +267,10 @@ class Rules(unittest.TestCase):
 
     def test_notes_index_skips_private_and_generated_folders(self):
         root = vault_with({"Notes/a.md": "x", "raw/b.md": "x", "00 Inbox/Geheimsache 1/c.md": "x",
-                           "Notes/Akte 999.md": "x"})
+                           "Notes/Akte 999.md": "x", ".trash/d.md": "x"})
+        self.assertEqual([n["path"] for n in sources.read_notes(root)], ["Notes/a.md", "raw/b.md"])
+        sources.set_skip(["raw"])
+        self.addCleanup(sources.set_skip, [])
         self.assertEqual([n["path"] for n in sources.read_notes(root)], ["Notes/a.md"])
 
 
@@ -433,15 +436,24 @@ class Tools(unittest.TestCase):
 class NewApps(unittest.TestCase):
     def store(self):
         root = Path(tempfile.mkdtemp())
-        return tools.ToolStore(root / "t.json", root / "none.json")
+        return tools.ToolStore(root / "t.json", root / "none.json", Path(tools.__file__).parent / "tools.catalog.json")
 
-    def test_an_outside_app_gets_its_own_logo_and_ours_stay_lettered(self):
+    def test_a_well_known_app_gets_its_own_logo_and_everything_else_stays_lettered(self):
         s = self.store()
         s.apply({"action": "add", "name": "WhatsApp", "url": "https://web.whatsapp.com/", "group": "Daily", "pinned": True, "own": False})
         s.apply({"action": "add", "name": "My page", "url": "https://claude.ai/artifact/x", "group": "Mine", "own": True})
-        wa, mine = s.load()["tools"]
+        # A logo is asked for at Google, which must never learn of an address inside a company.
+        s.apply({"action": "add", "name": "Intranet", "url": "https://intranet.mycompany.example/", "group": "Daily", "own": False})
+        wa, mine, inside = s.load()["tools"]
         self.assertEqual((wa["icon"], wa["pinned"], wa["own"]), ("web.whatsapp.com", True, False))
         self.assertNotIn("icon", mine)
+        self.assertNotIn("icon", inside)
+        # An entry saved by an older version keeps its place and is shown without the logo.
+        data = s.load()
+        data["tools"][2]["icon"] = "intranet.mycompany.example"
+        s.save(data)
+        self.assertNotIn("intranet.mycompany.example", str([t.get("icon") for t in s.shown()["tools"]]))
+        self.assertEqual(len(s.shown()["tools"]), 3)
 
 
 class PhotoPaths(unittest.TestCase):

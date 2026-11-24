@@ -36,7 +36,7 @@ MTIME = 1767225600  # one fixed date on every packed file, so the same input giv
 # What belongs to the program itself. Everything else in the repository is for people who change it.
 SKIP_DIRS = ("tests/", "docs/", "packaging/", "scripts/", "design/", "desktop/", ".github/")
 KEEP_PLAIN = {"LICENSE", "VERSION", "install.sh", "tools.catalog.json", "tools.default.json", "projects.default.json",
-              "team.json", "team.example.json"}
+              "ask-settings.json", "windows-zones.json", "team.json", "team.example.json"}
 # Parts of Python that Brento never uses.
 PYTHON_DROP = re.compile(r"^python/(include|share)/|^python/lib/(tcl|tk|itcl|thread|lib(tcl|tk|python))|^python/lib/pkgconfig/|"
                          r"^python/lib/python3\.\d+/(site-packages|ensurepip|idlelib|tkinter|turtledemo|test|pydoc_data|lib2to3|"
@@ -45,10 +45,17 @@ THIRD_PARTY = """Brento's installer brings these programs along, each under its 
 what Brento does not use:
 
 Python {python}          https://www.python.org/             license: python/{python_license}
-GitHub CLI {gh}        https://cli.github.com/             license: app/bin/LICENSE-gh.txt
+{more}GitHub CLI {gh}        https://cli.github.com/             license: app/bin/LICENSE-gh.txt
 Photos on the cards    Wikimedia Commons                   authors and licenses: app/web/photos/CREDITS.md
+Time zone names        https://cldr.unicode.org/           Unicode License V3, https://www.unicode.org/license.txt
 
 Brento itself: app/LICENSE
+"""
+# Libraries inside the Mac's Python, whose publisher keeps the license texts beside it and not in it.
+MORE_MAC = """Inside that Python: OpenSSL, libffi, expat, mpdecimal, zstd, bzip2, liblzma, SQLite and libuuid
+                       https://github.com/astral-sh/python-build-standalone     licenses: licenses/
+"""
+MORE_WINDOWS = """Time zones {tzdata}      https://pypi.org/project/tzdata/    license: python/tzdata/LICENSE.txt
 """
 
 
@@ -146,8 +153,10 @@ def mac_runtime(chip, files):
     entries.append(("app/bin/LICENSE-gh.txt", 0o644, license_text, ""))
     stdlib = next(n.split("/")[2] for n in members if re.match(r"^python/lib/python3\.\d+/LICENSE\.txt$", n))
     notice = THIRD_PARTY.format(python=RUNTIMES["python-mac-" + chip]["version"], gh=RUNTIMES["gh-mac-" + chip]["version"],
-                                python_license="lib/%s/LICENSE.txt" % stdlib)
+                                python_license="lib/%s/LICENSE.txt" % stdlib, more=MORE_MAC)
     entries.append(("THIRD-PARTY.txt", 0o644, notice.encode("utf-8"), ""))
+    for path in sorted((HERE / "mac" / "licenses").glob("*.txt")):
+        entries.append(("licenses/" + path.name, 0o644, path.read_bytes().replace(b"\r\n", b"\n"), ""))
     return targz(entries), sum(len(e[2]) for e in entries if e[2])
 
 
@@ -210,6 +219,17 @@ def stage_windows(stage):
             if "/" in name or "\\" in name or name.startswith("."):
                 raise SystemExit("Unexpected file in the Python download: %s" % name)
             (python / name).write_bytes(archive.read(name))
+    # Windows itself has no time zone data in the form Python reads.
+    with zipfile.ZipFile(io.BytesIO(fetch("tzdata"))) as archive:
+        for name in archive.namelist():
+            if name.startswith("tzdata/") and not name.endswith("/") and ".." not in name:
+                target = python / name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(archive.read(name))
+        texts = [archive.read(n) for n in sorted(archive.namelist()) if re.search(r"dist-info/licenses/.*LICENSE[^/]*$", n)]
+        if not texts or not (python / "tzdata" / "zoneinfo" / "America" / "New_York").is_file():
+            raise SystemExit("The time zone data does not look as expected.")
+        (python / "tzdata" / "LICENSE.txt").write_bytes(b"\n\n".join(texts))
     paths = next(python.glob("python3*._pth"))
     # This Python looks for modules in these places only, so nothing else on the computer can get in its way.
     paths.write_text("%s.zip\n.\n..\\app\n" % paths.stem, encoding="ascii")
@@ -218,7 +238,7 @@ def stage_windows(stage):
     (stage / "app" / "bin" / "gh.exe").write_bytes(gh)
     (stage / "app" / "bin" / "LICENSE-gh.txt").write_bytes(license_text)
     notice = THIRD_PARTY.format(python=RUNTIMES["python-windows-x64"]["version"], gh=RUNTIMES["gh-windows-x64"]["version"],
-                                python_license="LICENSE.txt")
+                                python_license="LICENSE.txt", more=MORE_WINDOWS.format(tzdata=RUNTIMES["tzdata"]["version"]))
     (stage / "THIRD-PARTY.txt").write_text(notice, encoding="utf-8")
     shutil.copyfile(str(HERE / "windows" / "brento.ico"), str(stage / "brento.ico"))
     return ver

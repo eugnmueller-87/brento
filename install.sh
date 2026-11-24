@@ -64,6 +64,8 @@ if [ -z "${BRENTO_PACKAGED:-}" ] && ! "$PY" -c 'import urllib.request; urllib.re
   echo "      Python from python.org: open Applications, the Python folder, and double-click Install Certificates.command."
 fi
 mkdir -p "$DIR" "$BIN"
+# Private links and the key to Brento lie in there. On a Mac other people's accounts could look into it otherwise.
+chmod 700 "$DIR" 2>/dev/null || true
 
 # The brento command: opens Brento, and starts it first when it is not running.
 cat > "$BIN/brento" <<EOF
@@ -124,11 +126,18 @@ EOF
   make_app "$APP" "$SCRIPTS/open.applescript"
   [ -d "$APP" ] && echo "App: ~/Applications/Brento (Spotlight finds it)"
   if [ -n "${BRENTO_PACKAGED:-}" ]; then
+    # The settings are only offered for deletion where Brento itself put them.
     cat > "$SCRIPTS/remove.applescript" <<EOF
 set answer to button returned of (display dialog "Remove Brento from this Mac?" & return & return & "Your notes, your board and your calendar stay as they are." with title "Brento" buttons {"Keep Brento", "Remove Brento"} default button "Keep Brento" with icon caution)
 if answer is "Remove Brento" then
 	do shell script "/bin/sh " & quoted form of "$(quoted "$HERE/install.sh")" & " --remove"
-	display dialog "Brento is removed." & return & return & "Your settings stay in your home folder, in case you come back." with title "Brento" buttons {"OK"} default button 1
+	set settingsFolder to "$(quoted "$DIR")"
+	if settingsFolder is "$(quoted "$HOME/.brento")" then
+		set more to button returned of (display dialog "Brento is removed." & return & return & "Delete its settings too? That is the folder .brento in your home folder, with your calendar link, the Slack link and the paired phones. If you may come back to Brento, keep them." & return & return & "Your sign-in to GitHub stays on this Mac. You can take it back under github.com/settings/applications." with title "Brento" buttons {"Delete the settings", "Keep the settings"} default button "Keep the settings")
+		if more is "Delete the settings" then do shell script "/bin/rm -rf " & quoted form of settingsFolder
+	else
+		display dialog "Brento is removed." & return & return & "Your settings stay in your home folder." with title "Brento" buttons {"OK"} default button 1
+	end if
 end if
 EOF
     make_app "$UNAPP" "$SCRIPTS/remove.applescript"

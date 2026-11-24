@@ -16,9 +16,11 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "packaging"))
+import address
 import build
 import launcher
 import macpkg
+import server
 import settings
 import wizard
 
@@ -135,6 +137,28 @@ class SignIns(unittest.TestCase):
                 self.assertEqual(folders[-2:], [str(Path(tmp, "bin")), str(Path(tmp, "bundled"))])
 
 
+class Start(unittest.TestCase):
+    def test_no_name_is_looked_up_before_brento_listens(self):
+        # The lookup can take half a minute, and on a Mac it can raise a question about the local network.
+        def never(*args):
+            raise AssertionError("looked up %r" % (args,))
+        with mock.patch.object(socket, "getfqdn", never), mock.patch.object(socket, "gethostbyaddr", never):
+            for kind, handler in ((server.Server, server.Handler), (server.PhoneServer, server.PhoneHandler)):
+                srv = kind(("127.0.0.1", 0), handler)
+                try:
+                    self.assertEqual((srv.server_name, srv.server_port), srv.server_address[:2])
+                finally:
+                    srv.server_close()
+
+    def test_a_second_brento_does_not_share_the_port(self):
+        first = server.Server(("127.0.0.1", 0), server.Handler)
+        try:
+            with self.assertRaises(OSError):
+                server.Server(first.server_address[:2], server.Handler).server_close()
+        finally:
+            first.server_close()
+
+
 class Launcher(unittest.TestCase):
     NETSTAT = ("Aktive Verbindungen\r\n\r\n  Proto  Lokale Adresse         Remoteadresse          Status           PID\r\n"
                "  TCP    127.0.0.1:8770         127.0.0.1:50312        HERGESTELLT      4242\r\n"
@@ -142,10 +166,10 @@ class Launcher(unittest.TestCase):
 
     def test_finds_the_process_behind_the_port_in_any_language(self):
         with mock.patch.object(launcher, "output", return_value=self.NETSTAT), mock.patch.object(launcher.sys, "platform", "win32"), \
-                mock.patch.object(launcher, "PORT", 8770):
+                mock.patch.object(address, "port", return_value=8770):
             self.assertEqual(launcher.listener(), 26444)
         with mock.patch.object(launcher, "output", return_value=self.NETSTAT), mock.patch.object(launcher.sys, "platform", "win32"), \
-                mock.patch.object(launcher, "PORT", 8771):
+                mock.patch.object(address, "port", return_value=8771):
             self.assertEqual(launcher.listener(), 0)
         for text, pid in (("512\n", 512), ("", 0), ("lsof: no such thing", 0)):
             with mock.patch.object(launcher, "output", return_value=text), mock.patch.object(launcher.sys, "platform", "darwin"):
@@ -153,25 +177,52 @@ class Launcher(unittest.TestCase):
 
     def test_stop_leaves_another_copy_alone(self):
         with mock.patch.object(launcher, "agent", return_value=None), mock.patch.object(launcher, "listener", return_value=77), \
-                mock.patch.object(launcher, "ours", return_value=False), mock.patch.object(launcher, "answers", return_value=True), \
-                mock.patch.object(launcher, "wait", return_value=True), mock.patch.object(launcher.os, "kill") as kill:
+                mock.patch.object(launcher, "ours", return_value=False), mock.patch.object(address, "whose", return_value="mine"), \
+                mock.patch.object(launcher, "until", return_value=True), mock.patch.object(launcher.os, "kill") as kill:
             launcher.stop()
             kill.assert_not_called()
             launcher.stop(any_brento=True)
             kill.assert_called_once()
 
-    def test_stop_never_ends_a_program_that_is_not_a_brento(self):
-        with mock.patch.object(launcher, "agent", return_value=None), mock.patch.object(launcher, "listener", return_value=77), \
-                mock.patch.object(launcher, "ours", return_value=False), mock.patch.object(launcher, "answers", return_value=False), \
-                mock.patch.object(launcher, "wait", return_value=True), mock.patch.object(launcher.os, "kill") as kill:
-            launcher.stop(any_brento=True)
-            kill.assert_not_called()
+    def test_stop_never_ends_another_program_or_another_persons_brento(self):
+        for whose in ("", "other"):
+            with mock.patch.object(launcher, "agent", return_value=None), mock.patch.object(launcher, "listener", return_value=77), \
+                    mock.patch.object(launcher, "ours", return_value=False), mock.patch.object(address, "whose", return_value=whose), \
+                    mock.patch.object(launcher, "until", return_value=True), mock.patch.object(launcher.os, "kill") as kill:
+                launcher.stop(any_brento=True)
+                kill.assert_not_called()
 
-    def test_a_taken_port_is_said_in_plain_words(self):
-        with mock.patch.object(launcher, "answers", return_value=False), mock.patch.object(launcher, "listener", return_value=77), \
-                mock.patch.object(launcher, "spawn") as spawn:
-            self.assertIn("Another program", launcher.start())
-            spawn.assert_not_called()
+    def test_another_persons_brento_is_never_opened_as_ones_own(self):
+        with mock.patch.object(launcher, "agent", return_value=None), mock.patch.object(address, "whose", return_value="other"), \
+                mock.patch.object(launcher, "until", return_value=False), mock.patch.object(launcher, "spawn") as spawn:
+            self.assertIn("did not start", launcher.start())
+            spawn.assert_called_once()
+
+    def test_only_programs_of_the_installed_copy_count_as_its_own(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            (base / "python").mkdir()
+            (base / "app").mkdir()
+            programs = {1: base / "python" / "pythonw.exe", 2: base / "app" / "bin" / "gh.exe", 3: base / "unins000.exe",
+                        4: base.parent / "chrome.exe", 5: ""}
+            with mock.patch.object(launcher, "HERE", base / "app"), mock.patch.object(launcher.sys, "platform", "win32"), \
+                    mock.patch.object(launcher, "program_of", side_effect=lambda pid: str(programs[pid])):
+                self.assertEqual([pid for pid in programs if launcher.ours(pid)], [1, 2])
+                with mock.patch.object(launcher, "every_pid", return_value=list(programs)), mock.patch.object(launcher.os, "getpid", return_value=1), \
+                        mock.patch.object(launcher.os, "kill") as kill:
+                    launcher.end_helpers()
+                    self.assertEqual([c.args[0] for c in kill.call_args_list], [2])
+            # A copy of the source code has no programs of its own: nothing beside it may ever be ended.
+            with mock.patch.object(launcher, "HERE", base), mock.patch.object(launcher.sys, "platform", "win32"), \
+                    mock.patch.object(launcher, "program_of", side_effect=lambda pid: str(programs[pid])), \
+                    mock.patch.object(launcher.os, "kill") as kill:
+                self.assertFalse(any(launcher.ours(pid) for pid in programs))
+                launcher.end_helpers()
+                kill.assert_not_called()
+
+    @unittest.skipUnless(sys.platform == "win32", "Windows only")
+    def test_every_process_is_seen(self):
+        self.assertIn(os.getpid(), launcher.every_pid())
 
     def test_the_login_service_gets_a_second_try(self):
         answers = iter([False, False, False, True])
@@ -191,20 +242,20 @@ class Launcher(unittest.TestCase):
             def run(*args):
                 return subprocess.run([sys.executable, str(ROOT / "launcher.py")] + list(args), env=env, timeout=90).returncode
 
-            with mock.patch.object(launcher, "PORT", port), mock.patch.object(launcher, "PAGE", "http://127.0.0.1:%d/" % port):
+            with mock.patch.dict(os.environ, env):
                 try:
                     self.assertEqual(run("--start"), 0)
-                    self.assertTrue(launcher.answers())
+                    self.assertEqual(address.whose(), "mine")
                     first = launcher.listener()
                     self.assertTrue(first)
                     self.assertEqual(run("--start"), 0)
                     self.assertEqual(launcher.listener(), first)
                     self.assertEqual(run("--replace", "--start"), 0)
-                    self.assertTrue(launcher.answers())
+                    self.assertEqual(address.whose(), "mine")
                     self.assertNotEqual(launcher.listener(), first)
                 finally:
                     launcher.stop(any_brento=True)
-                self.assertFalse(launcher.answers())
+                self.assertEqual(address.whose(), "")
                 # Windows lets go of the log a moment after the process is gone.
                 until(lambda: not launcher.listener())
                 time.sleep(0.5)
@@ -262,14 +313,15 @@ class MacPackage(unittest.TestCase):
 class Contents(unittest.TestCase):
     def test_downloads_are_pinned(self):
         entries = {k: v for k, v in json.loads((ROOT / "packaging" / "runtimes.json").read_text(encoding="utf-8")).items() if k != "about"}
-        self.assertEqual(len(entries), 6)
+        self.assertEqual(len(entries), 7)
         for key, entry in entries.items():
             self.assertRegex(entry["sha256"], r"^[0-9a-f]{64}$", key)
-            self.assertRegex(entry["url"], r"^https://(github\.com/(astral-sh/python-build-standalone|cli/cli)/releases/download/|www\.python\.org/ftp/python/)", key)
+            self.assertRegex(entry["url"], r"^https://(github\.com/(astral-sh/python-build-standalone|cli/cli)/releases/download/|www\.python\.org/ftp/python/"
+                                           r"|files\.pythonhosted\.org/packages/)", key)
 
     def test_a_changed_download_stops_the_build(self):
         with tempfile.TemporaryDirectory() as tmp, mock.patch.object(build, "CACHE", Path(tmp)):
-            Path(tmp, "gh_2.105.0_macOS_arm64.zip").write_bytes(b"not what was published")
+            Path(tmp, build.RUNTIMES["gh-mac-arm64"]["url"].rsplit("/", 1)[1]).write_bytes(b"not what was published")
             with self.assertRaises(SystemExit):
                 build.fetch("gh-mac-arm64")
 
@@ -277,7 +329,8 @@ class Contents(unittest.TestCase):
         if not (ROOT / "VERSION").is_file() or not (ROOT / ".git").exists():
             self.skipTest("only in the public repository")
         files = build.program_files()
-        for needed in ("server.py", "launcher.py", "wizard.py", "web/app.js", "web/photos/CREDITS.md", "LICENSE", "install.sh"):
+        for needed in ("server.py", "launcher.py", "address.py", "wizard.py", "web/app.js", "web/photos/CREDITS.md", "LICENSE", "install.sh",
+                       "ask-settings.json", "windows-zones.json"):
             self.assertIn(needed, files)
         for rel in files:
             self.assertFalse(rel.startswith(("tests/", "packaging/", "docs/", ".github/")), rel)

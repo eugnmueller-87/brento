@@ -1,5 +1,5 @@
-# A pushed tag like v0.2.0 becomes a release: unit tests, both installers built, each of them installed, started,
-# updated and removed on real Macs and on Windows, and only when all of that worked, published.
+# A pushed tag like v0.2.0 becomes a release: unit tests, both installers built, each of them installed, opened, walked
+# through, updated and removed on real Macs and on Windows, and only when all of that worked, published.
 # "Run workflow" by hand, or a push to a branch called try/something, does everything except the publishing.
 name: release
 on:
@@ -10,15 +10,11 @@ on:
 permissions:
   contents: read
 jobs:
-  test:
+  notes:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
-      - name: Unit tests
-        run: python -m unittest discover -s tests
       - name: The tag matches VERSION
         if: startsWith(github.ref, 'refs/tags/v')
         run: test "v$(tr -d '[:space:]' < VERSION)" = "$GITHUB_REF_NAME"
@@ -40,9 +36,35 @@ jobs:
           name: notes
           path: notes.md
 
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: ubuntu-latest, python: "3.13"}
+          # The oldest Python a copy of the source code runs on.
+          - {os: ubuntu-24.04, python: "3.9"}
+          - {os: macos-15-intel, python: "3.13"}
+          - {os: macos-26, python: "3.13"}
+          - {os: windows-latest, python: "3.13"}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m unittest discover -s tests
+      - name: Page and shell scripts parse
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          for f in web/app.js web/art.js; do node --check "$f" || exit 1; done
+          for f in install.sh "Install Brento.command" packaging/mac/postinstall; do sh -n "$f" || exit 1; done
+
   build-mac:
-    needs: test
+    needs: [notes, test]
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -56,8 +78,9 @@ jobs:
           compression-level: 0
 
   build-windows:
-    needs: test
+    needs: [notes, test]
     runs-on: windows-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -83,30 +106,48 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # An Apple chip and an Intel Mac.
-        os: [macos-15, macos-15-intel]
+        # Apple chips and Intel. xcode-27 is macOS 27, until GitHub offers it under its own name.
+        os: [macos-15, macos-15-intel, macos-26, macos-26-intel, xcode-27]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           name: mac
-      - name: Unit tests on this Mac
-        run: python3 -m unittest discover -s tests
       - name: Install, as the person at the screen
         run: |
           uname -m; sw_vers -productVersion
           installer -pkg Brento-Mac.pkg -target CurrentUserHomeDirectory -verboseR
           python3 packaging/check_install.py up
+      - name: The browser it opened was let in
+        run: |
+          for i in $(seq 1 30); do
+            title="$(perl -e 'alarm 20; exec @ARGV' osascript -e 'tell application "System Events" to tell process "Safari" to get name of window 1' 2>&1 || true)"
+            case "$title" in *Welcome*) echo "Safari shows: $title"; exit 0 ;; esac
+            sleep 2
+          done
+          echo "Safari shows: $title"; exit 1
+      - name: A picture of what the person sees then
+        if: always()
+        continue-on-error: true
+        run: screencapture -x 1-installed-${{ matrix.os }}.png
+      - name: The whole setup in a browser
+        timeout-minutes: 6
+        run: |
+          python3 -m venv "$RUNNER_TEMP/walk"
+          "$RUNNER_TEMP/walk/bin/pip" -q install selenium==4.51.0
+          sudo safaridriver --enable || true
+          "$RUNNER_TEMP/walk/bin/python" packaging/walk_setup.py safari pictures
       - name: Update by installing again
         run: |
           installer -pkg Brento-Mac.pkg -target CurrentUserHomeDirectory -verboseR
-          python3 packaging/check_install.py up
+          python3 packaging/check_install.py kept
       - name: A crash does not end Brento
         run: |
           pkill -9 -f "Application Support/Brento/app/server.py"
           sleep 35
-          python3 packaging/check_install.py up
+          python3 packaging/check_install.py kept
       - name: Remove it the way the Uninstall app does
         run: |
           /bin/sh "$HOME/Library/Application Support/Brento/app/install.sh" --remove
@@ -117,23 +158,30 @@ jobs:
         run: |
           open Brento-Mac.pkg
           sleep 12
-          screencapture -x installer-${{ matrix.os }}.png
+          screencapture -x 2-installer-${{ matrix.os }}.png
       - name: What went wrong, if something did
         if: failure()
         run: |
-          tail -n 60 /var/log/install.log || true
+          grep -v ' Env: ' /var/log/install.log | tail -n 60 || true
           cat "$HOME/.brento/server.log" || true
       - uses: actions/upload-artifact@v4
         if: always()
         continue-on-error: true
         with:
-          name: picture-${{ matrix.os }}
-          path: installer-*.png
+          name: pictures-${{ matrix.os }}
+          path: |
+            *-${{ matrix.os }}.png
+            pictures/*.png
           if-no-files-found: ignore
 
   try-windows:
     needs: build-windows
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, windows-2025, windows-11-arm]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     defaults:
       run:
         shell: pwsh
@@ -145,19 +193,52 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: windows
-      - name: Unit tests on Windows
-        run: python -m unittest discover -s tests
+      - name: How the installer is run here
+        # Not Start-Process -Wait: that also waits for the Brento the installer starts, which runs until sign-out.
+        run: |
+          @'
+          param($Log)
+          $p = Start-Process .\Brento-Windows.exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/LOG=$pwd\$Log" -PassThru
+          $null = $p.Handle
+          if (-not $p.WaitForExit(240000)) { Get-Content $Log -Tail 60; throw "the installer still ran after four minutes" }
+          if ($p.ExitCode -ne 0) { Get-Content $Log -Tail 60; throw "the installer ended with $($p.ExitCode)" }
+          '@ | Set-Content run-installer.ps1
+          @'
+          param($Name)
+          Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+          $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+          $i = New-Object System.Drawing.Bitmap $b.Width, $b.Height
+          [System.Drawing.Graphics]::FromImage($i).CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size)
+          $i.Save("$pwd\$Name.png")
+          '@ | Set-Content picture.ps1
       - name: Install
         run: |
-          $p = Start-Process .\Brento-Windows.exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/LOG=$pwd\install.log" -Wait -PassThru
-          if ($p.ExitCode -ne 0) { Get-Content install.log -Tail 60; throw "the installer ended with $($p.ExitCode)" }
+          .\run-installer.ps1 install.log
           python packaging/check_install.py up
+      - name: The browser it opened was let in
+        run: |
+          foreach ($i in 1..30) {
+            $shown = (Get-Process | Where-Object { $_.MainWindowTitle -match 'Brento' } | ForEach-Object { "$($_.ProcessName): $($_.MainWindowTitle)" }) -join ' | '
+            if ($shown -match 'Welcome') { break }
+            Start-Sleep -Seconds 2
+          }
+          "windows: $shown"
+          if ($shown -notmatch 'Welcome') { throw 'no window shows the setup' }
+      - name: A picture of what the person sees then
+        if: always()
+        continue-on-error: true
+        run: .\picture.ps1 1-installed-${{ matrix.os }}
+      - name: The whole setup in a browser
+        timeout-minutes: 6
+        run: |
+          python -m pip -q install selenium==4.51.0
+          python packaging/walk_setup.py edge pictures
       - name: Update by installing again
         run: |
-          $p = Start-Process .\Brento-Windows.exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/LOG=$pwd\update.log" -Wait -PassThru
-          if ($p.ExitCode -ne 0) { Get-Content update.log -Tail 60; throw "the installer ended with $($p.ExitCode)" }
-          python packaging/check_install.py up
+          .\run-installer.ps1 update.log
+          python packaging/check_install.py kept
       - name: Remove it
+        timeout-minutes: 4
         run: |
           Start-Process "$env:LOCALAPPDATA\Programs\Brento\unins000.exe" -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait
           python packaging/check_install.py down
@@ -165,26 +246,30 @@ jobs:
         if: always()
         continue-on-error: true
         run: |
-          $p = Start-Process .\Brento-Windows.exe -PassThru
+          Start-Process .\Brento-Windows.exe
           Start-Sleep -Seconds 10
-          Add-Type -AssemblyName System.Windows.Forms, System.Drawing
-          $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
-          $i = New-Object System.Drawing.Bitmap $b.Width, $b.Height
-          [System.Drawing.Graphics]::FromImage($i).CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size)
-          $i.Save("$pwd\installer-windows.png")
+          .\picture.ps1 2-installer-${{ matrix.os }}
           Get-Process Brento-Windows* | Stop-Process -Force
+      - name: What went wrong, if something did
+        if: failure()
+        run: |
+          Get-Content "$HOME\.brento\server.log" -Tail 40 -ErrorAction SilentlyContinue
+          Get-Content install.log, update.log -Tail 40 -ErrorAction SilentlyContinue
       - uses: actions/upload-artifact@v4
         if: always()
         continue-on-error: true
         with:
-          name: picture-windows
-          path: installer-*.png
+          name: pictures-${{ matrix.os }}
+          path: |
+            *-${{ matrix.os }}.png
+            pictures/*.png
           if-no-files-found: ignore
 
   publish:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [test, try-mac, try-windows]
+    needs: [notes, test, try-mac, try-windows]
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: write
     steps:
@@ -204,3 +289,9 @@ jobs:
           sha256sum Brento-Mac.pkg Brento-Windows.exe > SHA256SUMS.txt
           gh release create "$GITHUB_REF_NAME" Brento-Mac.pkg Brento-Windows.exe SHA256SUMS.txt \
             --repo "$GITHUB_REPOSITORY" --title "Brento $GITHUB_REF_NAME" --notes-file notes.md --verify-tag
+      - name: The download links give exactly these files
+        run: |
+          for f in Brento-Mac.pkg Brento-Windows.exe; do
+            curl -fsSL --retry 6 --retry-delay 10 --retry-all-errors -o "got-$f" "https://github.com/$GITHUB_REPOSITORY/releases/latest/download/$f"
+            cmp "$f" "got-$f"
+          done

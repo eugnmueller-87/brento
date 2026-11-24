@@ -122,6 +122,9 @@ class Tasks(unittest.TestCase):
     def test_index_skips_hidden_folders_and_private_rows_and_rereads_changes(self):
         root = vault_with({"Work/todo.md": "- [ ] Ship it 📅 2026-11-24\n- [ ] Geheimsache reply 📅 2026-11-24\n",
                            ".obsidian/x.md": "- [ ] Not a note 📅 2026-11-24\n", "raw/y.md": "- [ ] Raw 📅 2026-11-24\n"})
+        self.assertEqual(len(sources.TaskIndex(root, ttl=0).scan()), 3)
+        sources.set_skip(["raw"])
+        self.addCleanup(sources.set_skip, [])
         index = sources.TaskIndex(root, ttl=0)
         data, src = sources.read_tasks(index, TODAY)
         self.assertEqual([t["title"] for t in data["items"]], ["Ship it"])

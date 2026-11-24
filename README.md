@@ -2,8 +2,8 @@
 
 [![tests](https://github.com/eugnmueller-87/brento/actions/workflows/tests.yml/badge.svg)](https://github.com/eugnmueller-87/brento/actions/workflows/tests.yml)
 [![release](https://img.shields.io/github/v/release/eugnmueller-87/brento?style=flat)](https://github.com/eugnmueller-87/brento/releases/latest)
-![Python](https://img.shields.io/badge/Python-3.9%2B-3776AB?style=flat&logo=python&logoColor=white)
-![No build step](https://img.shields.io/badge/build-none-555?style=flat)
+![Mac and Windows](https://img.shields.io/badge/Mac_and_Windows-one_file-2ea44f?style=flat)
+![Nothing to pay for](https://img.shields.io/badge/running_costs-none-555?style=flat)
 ![License: MIT](https://img.shields.io/badge/license-MIT-555?style=flat)
 
 One screen that tells you what needs you today. Brento reads your Obsidian notes and their dated tasks, your
@@ -11,8 +11,8 @@ GitHub Project board and your calendar, and puts only what really needs you on i
 deadlines, meetings where people wait for you, urgent cards with a date. Your everyday apps sit in its dock.
 
 It runs on your own computer (Windows or Mac), shows on your phone too, only reads your data, and costs nothing
-to run. It works for one person or for a whole team sharing one board. And it is a blueprint: take this repository
-and build your own.
+to run. It opens only for you, also on a computer you share. It works for one person or for a whole team sharing one
+board. And it is a blueprint: take this repository and build your own.
 
 ---
 
@@ -20,27 +20,30 @@ and build your own.
 
 | Your computer | One file |
 |---|---|
-| **Mac** (macOS 11 or newer, Apple chip or Intel) | [**Download Brento-Mac.pkg**](https://github.com/eugnmueller-87/brento/releases/latest/download/Brento-Mac.pkg) |
+| **Mac** (macOS 13 or newer, Apple chip or Intel) | [**Download Brento-Mac.pkg**](https://github.com/eugnmueller-87/brento/releases/latest/download/Brento-Mac.pkg) |
 | **Windows** 10 or 11 | [**Download Brento-Windows.exe**](https://github.com/eugnmueller-87/brento/releases/latest/download/Brento-Windows.exe) |
 
 Open the file and click through. Then Brento opens in your browser and asks one question per page, and you can skip
-every one of them. The file brings everything along: no Terminal, no Python, no GitHub program to install, no
-administrator password. Brento starts when you log in, and you open it like any other app.
+every one of them. The file brings everything along, so there is nothing else to install and no Terminal to open.
+Brento starts when you log in, and you open it like any other app.
 
 ### The first time on a Mac
 
 macOS stops programs from the internet that Apple has not checked. Brento has no paid Apple certificate, so you allow
-it once ([Apple's own description](https://support.apple.com/guide/mac-help/open-a-mac-app-from-an-unidentified-developer-mh40616/mac)):
+the file yourself ([Apple's own description](https://support.apple.com/guide/mac-help/open-a-mac-app-from-an-unidentified-developer-mh40616/mac)):
 
-1. Open **Brento-Mac.pkg**. macOS says it could not check the file. Click **Done**.
-2. Open **System Settings**, then **Privacy & Security**, and scroll down. Next to *Brento-Mac.pkg* click
-   **Open Anyway**, and confirm. The button is there for about an hour.
-3. The installer opens: **Continue**, **Install**. That is all.
+1. Open **Brento-Mac.pkg**. macOS says *"Brento-Mac.pkg" Not Opened*. Click **Done**, not the blue *Move to Trash*.
+2. Open **System Settings**, then **Privacy & Security**, and scroll down to *Security*. Next to *"Brento-Mac.pkg" was
+   blocked to protect your Mac* click **Open Anyway**, and confirm with the password you log in with. That is macOS
+   asking, not Brento. The button is there for about an hour.
+3. The installer opens: **Continue**, **Install**, **Close**. Should it ask for an administrator, click **Change Install
+   Location** and choose **Install for me only**.
 
 ### The first time on Windows
 
-1. Open **Brento-Windows.exe**. If the browser asks whether to keep the file, keep it.
-2. If Windows says it protected your PC, click **More info**, then **Run anyway**.
+1. Your browser may hold the file back. In **Edge**: point at the download, click the three dots, **Keep**, **Show more**,
+   **Keep anyway**. In another browser choose to keep it, if it asks.
+2. Open **Brento-Windows.exe**. If Windows says that it protected your PC, click **More info**, then **Run anyway**.
 3. The installer opens: **Next**, **Install**, **Finish**.
 
 Some newer PCs have **Smart App Control** switched on. Windows then blocks every unknown program without a certificate,
@@ -49,16 +52,19 @@ Brento does not have that certificate yet, so it cannot be installed on such a P
 
 ### Updating and removing
 
-**Update:** download the new file and open it. Your setup stays, because it lives in your home folder (`.brento`).
-What changed is in [CHANGELOG.md](CHANGELOG.md).
+**Update:** download the new file and open it. Your computer asks the same questions again for each new version. Your
+setup stays, because it lives in your home folder (`.brento`). What changed is in [CHANGELOG.md](CHANGELOG.md).
 
 **Remove:** on a Mac, open **Uninstall Brento** (press Cmd and Space and type it). On Windows, **Settings, Apps**, Brento,
-**Uninstall**. Your notes, board and calendar stay as they are.
+**Uninstall**. Your notes, board and calendar stay as they are, and Brento asks whether its own settings should go too.
+Your GitHub sign-in stays on the computer; take it back under
+[github.com/settings/applications](https://github.com/settings/applications).
 
 ### Linux, or from the source code
 
 Linux: `sh install.sh` adds a `brento` command and opens the wizard, `sh install.sh --remove` takes it out again. On a
-Mac, the same script runs Brento with the Mac's own Python. On Windows, *Install Brento.cmd* does that. How the two
+Mac, the same script runs Brento with the Mac's own Python. On Windows, *Install Brento.cmd* does that with Python from
+python.org. How the two
 installers are built: [packaging/build.py](packaging/build.py).
 
 ## On your phone (iPhone, iPad, Android)
@@ -66,7 +72,8 @@ installers are built: [packaging/build.py](packaging/build.py).
 Brento shows on your phone through your computer, so there is no app store and nothing to install on the phone.
 
 1. On the computer: **Brain, Sources and setup**, then **Phone**, then **Use Brento on my phone**. Brento shows an
-   address and a six-digit code.
+   address and a six-digit code. Windows asks about Python then: that is Brento, click **Allow** (an administrator is
+   needed for that once, and your Wi-Fi has to be set to *Private network*).
 2. On the phone, on the same Wi-Fi: open Safari (or Chrome) and type the address.
 3. iPhone: **Share, Add to Home Screen**. Open Brento from its new icon and type the code.
 
@@ -82,8 +89,8 @@ One question per screen, most answers already filled in, a button for everything
 |---|---|
 | Welcome | Check your first name (taken from GitHub or git) |
 | Notes | Your Obsidian vault is already chosen. Brento shows how many notes and dated tasks it found |
-| Board | *Sign in to GitHub* shows a one-time code and a button that copies it and opens GitHub. Then click your board, or *Create a new board for me* |
-| Calendar | Pick Google, Outlook or Apple, follow four short steps, paste the private link. Brento checks it at once |
+| Board | *Sign in to GitHub* shows a one-time code and a button that copies it and opens GitHub. GitHub asks you to authorize *GitHub CLI*, its own program, with access to repositories, gists, organizations and projects: that program always asks for all of it. Then click your board, or *Create a new board for me* |
+| Calendar | Pick Google, Outlook or Apple, follow four short steps, paste the link. Brento checks it at once |
 | Slack (optional) | *Create the Brento app* opens Slack with everything filled in. Add a webhook, paste it, a test message arrives |
 | Apps | The apps for your dock, already ticked from what you connected |
 
@@ -111,8 +118,8 @@ The board page shows everyone's cards with their names. A template for the team 
 | Obsidian notes | Read inside Brento: topics, folders, tags, full-text search, backlinks |
 | Obsidian tasks with a date | `- [ ] Send the offer 📅 2026-11-30` (Tasks plugin), `[due:: 2026-11-30]` (Dataview) or `@due(2026-11-30)` |
 | GitHub Project board | Lanes HIGH, MID and LOW; a person's or an organization's board; your own field names |
-| Calendar | A private iCal link from Google, Outlook or Apple; meetings with others reach Home with a *Join call* button |
-| Ask box | Questions about your notes, answered by Claude Code on your computer under your own Claude login |
+| Calendar | An iCal link from Google, Outlook or Apple; meetings with others reach Home with a *Join call* button. Repeating appointments are left out |
+| Ask box | Questions about your notes, answered by Claude Code on your computer under your own Claude login. It can read your notes folder and nothing else. The privacy list does not cover it |
 
 **On track?** on the Today page checks the next two weeks: a meeting nobody prepared for, two meetings at the same
 time, a task or card whose date has passed, an urgent card without a date.
@@ -120,7 +127,12 @@ time, a task or card whose date has passed, an urgent card without a date.
 ## Principles
 
 - **Local and read-only.** Brento never changes a note, a card or an appointment. It writes to its own folder
-  (`~/.brento`), and creates a board or `team.json` only when you click the button for it.
+  (`~/.brento`), and creates a board, its lanes or `team.json` only when you click the button for it.
+- **What leaves the computer:** Brento asks GitHub and your calendar. Parts of your notes go to Claude when you ask the
+  Ask box, and messages go to Slack when you connect it. The logos of the known apps in the dock come from Google's
+  icon service. Nothing goes to the author of Brento.
+- **Only for you.** Brento opens only for the person it belongs to. Another account on the same computer sees a locked
+  page, and gets a Brento of its own.
 - **Nothing to type.** Installing, signing in, updating and removing work without a Terminal.
 - **Nothing to pay for.** No server, no database, no paid API. GitHub, the calendar link and the Slack webhook are free.
 - **Silence is not success.** A source that cannot be read shows *N/A*, never an empty, calm screen.
@@ -140,7 +152,8 @@ Run the tests with `python -m unittest discover -s tests`.
 
 The Ask box starts the unmodified `claude` program on your computer. You sign in to it yourself, through Anthropic's
 own sign-in; Brento never sees, stores or passes on that login, and it refuses to run on an API key, so it cannot
-cause a bill. Anthropic's terms
+cause a bill. It starts it so that only your notes folder can be read, and settings or hooks that lie in that folder
+do not count: a shared vault cannot start a program on your computer. Anthropic's terms
 ([legal and compliance](https://code.claude.com/docs/en/legal-and-compliance), read 23.11.2026) do not prevent "an
 end user from signing in to the unmodified Claude Code binary with their own Claude subscription". They do not
 name a local app that starts `claude -p` either, so if you plan to offer Brento commercially, ask Anthropic first.
@@ -149,9 +162,10 @@ The Ask box is optional and can stay off.
 ## Status
 
 Version 0.2.0, see [CHANGELOG.md](CHANGELOG.md). Brento grew out of a dashboard its author uses every day on
-Windows. Before a version is published, both installers are installed, started, updated and removed on GitHub's
-Macs (Apple chip and Intel) and on Windows. What no automatic test covers: the security question macOS and Windows
-ask the first time, and the pairing of a real phone. If something fails, please open an issue.
+Windows. Before a version is published, GitHub's computers install it, open it, go through the whole setup in a
+browser, update it and remove it: macOS 15 and 26 (Apple chip and Intel), macOS 27, Windows 11 (on Arm) and Windows
+Server 2022 and 2025. What no automatic test covers: the password question of macOS after *Open Anyway*, the warning of
+SmartScreen, and the pairing of a real phone. If something fails, please open an issue.
 
 ## Credits and license
 

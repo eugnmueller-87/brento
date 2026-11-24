@@ -77,13 +77,8 @@ if (-not $NoAutostart) {
     'Starts by itself when you sign in to Windows.'
 }
 
-# 3. Open it. The first start shows the setup wizard.
-# A Brento that already runs is an older copy after an update: restart.cmd stops it and starts this folder's.
-$running = netstat -ano | Select-String -SimpleMatch '127.0.0.1:8770 ' | Select-String -SimpleMatch '0.0.0.0:0 '
-if ($running) {
-    & wscript.exe (Join-Path $here 'start-hidden.vbs')
-    'An older Brento was running. It restarts from this folder now.'
-    Start-Sleep -Seconds 6
-}
-Start-Process -FilePath (Join-Path $here 'brento.cmd') -WindowStyle Minimized
+# 3. Open it. The first start shows the setup wizard. An older copy that still runs is stopped first.
+$pythonw = Join-Path (Split-Path -Parent $python) 'pythonw.exe'
+if (-not (Test-Path $pythonw)) { $pythonw = $python }
+Start-Process -FilePath $pythonw -ArgumentList ('"' + (Join-Path $here 'launcher.py') + '"'), '--replace'
 'Brento opens in a moment and walks you through the rest.'

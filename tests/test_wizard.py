@@ -82,7 +82,8 @@ class SlackPlan(unittest.TestCase):
                 slack_notify.clean_hook(bad)
         folder = Path(tempfile.mkdtemp())
         s = slack_notify.Slack(folder)
-        s.connect(good)
+        with mock.patch.object(s, "send", return_value=""):
+            s.connect(good, "hello")
         with mock.patch("urllib.request.urlopen", side_effect=OSError("down " + good)):
             error = s.send("hello")
         self.assertNotIn("hooks.slack.com", error)

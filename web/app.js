@@ -2,6 +2,8 @@
 (function () {
   'use strict';
 
+  // Everything this page asks Brento for carries a header that a link, a redirect or a foreign page cannot send.
+  const fetch = (url, options) => window.fetch(url, Object.assign({}, options, { headers: Object.assign({ 'X-Leitstand': '1' }, (options || {}).headers) }));
   const $ = (s, r = document) => r.querySelector(s);
   const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
   const esc = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -607,7 +609,16 @@
   }
   /* Home is up to ten slides: what really needs you, then the next real to-dos. The server picks them. */
   let deckCards = [];
+  // Sources that are on but could not be read. A calendar nobody connected has its own hint below the cards.
+  const unread = () => S.sources.filter((s) => s.state === 'unknown' && (s.id !== 'calendar' || S.calendarConnected));
   function quietCard() {
+    const lost = unread();
+    if (lost.length || S.vaultProblem) {
+      const loading = !S.vaultProblem && lost.every((s) => s.note === 'still loading');
+      return { id: 'quiet', kind: 'pipeline', level: 'calm', eyebrow: 'N/A', tag: '', title: loading ? 'Still reading' : 'Not everything could be read',
+        body: lost.length ? lost.map((s) => s.label + (s.note ? ': ' + s.note : '')).join('. ') + '.' : S.vaultProblem.charAt(0).toUpperCase() + S.vaultProblem.slice(1) + '.',
+        why: 'So Brento cannot say that nothing needs you.', source: 'Sources', sourceState: 'unknown', sourceAge: 'age unknown', route: 'brain', heat: 0, fog: 0.08 };
+    }
     const dated = S.deadlines.filter((d) => d.due >= S.today).sort((a, b) => a.due.localeCompare(b.due));
     return { id: 'quiet', kind: 'pipeline', level: 'calm', eyebrow: 'All quiet', tag: '', title: 'Nothing needs preparing',
       body: dated.length ? 'Next date: ' + dated[0].name + ', ' + weekdayOf(dated[0].due) + ' ' + dayMonth(dated[0].due) : '',
@@ -628,7 +639,8 @@
       + '<button class="deck-btn next" type="button" aria-label="Next card">' + icon('right') + '</button>' : '') + '</section>'
       + '<div class="deck-foot">' + (many ? '<div class="pips">' + cards.map((c, i) => '<button type="button" data-go="' + i + '" aria-label="Card ' + (i + 1) + '"></button>').join('') + '</div>' : '')
       // No key hints under the cards (owner, 08.11.2026: clutter). Only a broken calendar speaks up, because meetings would be missing.
-      + (S.calendarConnected ? '' : '<div class="hints"><span><a href="#today">Calendar not connected, so meetings are missing</a></span></div>') + '</div>';
+      + (S.calendarConnected ? '' : '<div class="hints"><span><a href="' + (S.phone ? '#today' : '#setup/3') + '">Calendar not connected, so meetings are missing</a></span></div>')
+      + (S.focus.length && (unread().length || S.vaultProblem) ? '<div class="hints"><span><a href="#brain">N/A: ' + esc(unread().map((s) => s.label).join(', ') || S.vaultProblem) + '</a></span></div>' : '') + '</div>';
     firstHome = false;
     bindDeck();
   }
@@ -834,17 +846,17 @@
       .concat(S.events.map((e) => ({ due: e.date, time: e.time, name: e.title, sub: e.people > 1 ? 'with ' + (e.people - 1) + (e.people === 2 ? ' other' : ' others') : 'calendar', join: e.join || '' })))
       .sort((a, b) => (a.due + a.time).localeCompare(b.due + b.time));
     let html = pageHead('Today', 'Fixed rules set this order: your own deadlines first, then what the morning brief names, then what has gone stale. Nothing here moves by itself.');
+    const dates = '<aside class="panel"><h3>Dates<span class="pill">' + dated.length + '</span></h3>' + (dated.map((m) => '<div class="date-row"><time>' + weekdayOf(m.due) + ' ' + dayMonth(m.due) + (m.time ? '<br>' + esc(m.time) : '') + '</time><div>' + esc(m.name) + '<small>' + esc(m.sub) + '</small>'
+      + (m.join ? '<a class="join-link" href="' + esc(m.join) + '" target="_blank" rel="noopener noreferrer">Join call</a>' : '') + '</div></div>').join('') || '<div class="note">No dates ahead.</div>')
+      + calendarBlock() + '</aside>';
     if (first) {
       const target = cardTarget(first);
       html += '<div class="today-grid"><section class="do-next" style="--c:' + Art.accent(first.kind) + '"><div class="label">DO NEXT<span class="pill">' + esc(first.eyebrow) + '</span>' + (first.tag ? '<span class="pill">' + esc(first.tag) + '</span>' : '') + '</div>'
         + '<h2>' + esc(first.title) + '</h2>' + (first.body ? '<p>' + esc(first.body) + '</p>' : '') + '<div class="why">' + esc(first.why) + '</div>'
         + '<div class="next-actions">' + (target ? '<a class="btn primary" href="' + esc(target) + '">' + (first.route ? 'Open ' + esc(routeLabel(first.route)) : 'Open note') + '</a>' : '')
-        + '<button class="btn" type="button" data-ask="' + esc('Give me the smallest first step, five minutes at most, for: ' + first.title + '. ' + (first.body || '')) + '">Ask for the smallest first step</button>' + originHtml(first) + '</div></section>'
-        + '<aside class="panel"><h3>Dates<span class="pill">' + dated.length + '</span></h3>' + (dated.map((m) => '<div class="date-row"><time>' + weekdayOf(m.due) + ' ' + dayMonth(m.due) + (m.time ? '<br>' + esc(m.time) : '') + '</time><div>' + esc(m.name) + '<small>' + esc(m.sub) + '</small>'
-          + (m.join ? '<a class="join-link" href="' + esc(m.join) + '" target="_blank" rel="noopener noreferrer">Join call</a>' : '') + '</div></div>').join('') || '<div class="note">No dates ahead.</div>')
-        + calendarBlock() + '</aside></div>';
+        + '<button class="btn" type="button" data-ask="' + esc('Give me the smallest first step, five minutes at most, for: ' + first.title + '. ' + (first.body || '')) + '">Ask for the smallest first step</button>' + originHtml(first) + '</div></section>' + dates + '</div>';
     } else {
-      html += '<div class="empty">Nothing has earned the top spot.</div>';
+      html += '<div class="today-grid"><div class="empty">Nothing has earned the top spot.</div>' + dates + '</div>';
     }
     html += '<h2 class="section-title">Then <span>' + rest.length + ', in this order</span></h2><div class="rows">'
       + (rest.map((c, i) => rowHtml(i, '<b>' + esc(c.title) + '</b><small>' + esc(c.why) + '</small>', '<span class="pill">' + esc(c.eyebrow) + '</span>', cardTarget(c))).join('') || '<div class="empty">Nothing else.</div>') + '</div>';
@@ -903,15 +915,11 @@
     // A phone only reads. The calendar is connected or disconnected on the computer.
     if (S.phone) return S.calendarConnected ? '' : '<p class="note">No calendar connected yet. Connect it in Brento on your computer.</p>';
     if (S.calendarConnected) return '<p class="note">Calendar ' + (src.state === 'fresh' ? 'connected' : esc(src.note || 'connected')) + '. <button class="link-btn" type="button" id="cal-off">Disconnect</button></p>';
-    return '<form class="cal-form" id="cal-form"><label for="cal-url">Connect your calendar, free, read-only</label>'
-      + '<p class="note">Google Calendar, Settings, your calendar, Integrate calendar, then copy "Secret address in iCal format".</p>'
-      + '<div><input id="cal-url" type="password" placeholder="Paste the link" autocomplete="off" spellcheck="false"><button class="btn" type="submit">Connect</button></div><p class="tools-error" id="cal-error" role="alert"></p></form>';
+    return '<p class="note">No calendar connected, so meetings are missing. <a class="link-btn" href="#setup/3">Connect your calendar</a></p>';
   }
   function bindCalendar() {
-    const send = (url) => fetch('/api/calendar', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Leitstand': '1' }, body: JSON.stringify({ url }) }).then(async (r) => { const j = await r.json(); if (!r.ok) throw new Error(j.error); });
-    const form = $('#cal-form'), off = $('#cal-off');
-    if (form) form.onsubmit = (e) => { e.preventDefault(); send($('#cal-url').value).then(() => { toast('Calendar connected. Events appear within a few seconds.'); setTimeout(load, 2500); }).catch((err) => { $('#cal-error').textContent = err.message; }); };
-    if (off) off.onclick = () => send('').then(load);
+    const off = $('#cal-off');
+    if (off) off.onclick = () => post('/api/calendar', { disconnect: true }).then(() => { stateText = ''; load(); if (route === 'settings') renderSettings(); }).catch((err) => toast(err.message));
   }
 
   /* Projects */
@@ -1015,7 +1023,11 @@
   function renderLibrary() {
     ambientOff();
     $('#view').innerHTML = '<div class="page"><div class="page-inner lib"><aside class="lib-side"><input class="search" id="lib-search" type="search" placeholder="Search all notes" aria-label="Search all notes"><nav id="lib-nav" aria-label="Library sections"></nav></aside><div class="lib-main" id="lib-main"><p class="note">Opening the library…</p></div></div></div>';
-    ensureLibrary().then(() => { if (route === 'library') paintLibrary(); }).catch((err) => { const m = $('#lib-main'); if (m) m.innerHTML = '<div class="empty">' + esc(err.message) + '</div>'; });
+    ensureLibrary().then((lib) => {
+      if (route !== 'library') return;
+      paintLibrary();
+      if (lib.problem && !routeId) $('#lib-main').innerHTML = '<div class="empty">N/A: ' + esc(lib.problem) + '.' + (S && S.phone ? '' : ' <a class="day-next" href="#settings">Choose the folder again</a>') + '</div>';
+    }).catch((err) => { const m = $('#lib-main'); if (m) m.innerHTML = '<div class="empty">' + esc(err.message) + '</div>'; });
     const box = $('#lib-search');
     box.oninput = () => { clearTimeout(libTimer); libTimer = setTimeout(() => paintSearch(box.value), 160); };
     box.onkeydown = (e) => { if (e.key === 'Escape') { box.value = ''; paintLibrary(); } };
@@ -1187,20 +1199,23 @@
         + stage(4, 'Archive', 'end of the line, nothing leaves it by rule', (b.archived || []).filter(inArea))
         + stage(5, 'No status, no date', 'no rule applies, these stay until someone sorts them', norule, norule.length ? 'warn' : '')
         + '</div><p class="note">' + (rules.passed ? 'A date older than the card is a note, not a deadline, so it stays. Put a moved card back and it stays where you put it.' : 'HIGH, MID and LOW have no rule. A card stays there until someone moves it.') + (job && !jobOk ? ' The last job run did not succeed.' : '') + '</p>'
-        : '<div class="empty">Could not read the rules from board_aging.py.</div>');
+        : '<div class="empty">The rules of the daily job could not be read.</div>');
+    const src = S.sources.find((s) => s.id === 'board') || {};
+    const managed = !!(rules || job || (b.aging && b.aging.on));
+    const nothing = src.state === 'unknown' ? 'Board not available: ' + (b.error || src.note || 'still loading') : 'No cards yet. Open the board on GitHub and add the first one.';
     const high = b.items.filter((i) => i.status === 'HIGH');
     const dead = high.filter((i) => i.passed).length;
     const filtered = boardDead || boardArea !== 'All';
     /* Fresh news has a date, not a priority: no status, so no lane. It still has to be visible. */
     const news = shown.filter((i) => i.bereich === 'News' && i.status === 'No status');
     const newsHtml = news.length ? '<h2 class="section-title">News <span>' + news.length + ' fresh' + (rules ? ', move to Old after ' + rules.news + ' days' : '') + '</span></h2><div class="lane-list">' + news.map(ticket).join('') + '</div>' : '';
-    pageWrap(pageHead('Board', 'GitHub Project #10. Click a card to read it. The daily job moves cards by the rules below.', '<a class="btn" href="' + esc(boardUrl()) + '" target="_blank" rel="noopener noreferrer">Open on GitHub</a>')
-      + (b.items.length || !b.error ? '<div class="tiles">' + tile('HIGH', high.length) + tile('HIGH with a passed date', dead, 'date in the title is over', dead ? 'warn' : 'good') + tile('MID', b.items.filter((i) => i.status === 'MID').length) + tile('LOW', b.items.filter((i) => i.status === 'LOW').length) + tile('Archive', (b.archived || []).length, 'handled by the rules below') + '</div>' : '')
+    pageWrap(pageHead('Board', (src.path || 'GitHub Project') + '. Click a card to read it.' + (managed ? ' The daily job moves cards by the rules below.' : ''), '<a class="btn" href="' + esc(boardUrl()) + '" target="_blank" rel="noopener noreferrer">Open on GitHub</a>')
+      + (b.items.length || !b.error ? '<div class="tiles">' + tile('HIGH', high.length) + tile('HIGH with a passed date', dead, 'date in the title is over', dead ? 'warn' : 'good') + tile('MID', b.items.filter((i) => i.status === 'MID').length) + tile('LOW', b.items.filter((i) => i.status === 'LOW').length) + tile('Archive', (b.archived || []).length, managed ? 'handled by the rules below' : null) + '</div>' : '')
       + '<div class="chips"><button class="chip" type="button" data-area="All" aria-pressed="' + (boardArea === 'All') + '">All</button>'
       + b.bereiche.map((a) => '<button class="chip" type="button" data-area="' + esc(a) + '" aria-pressed="' + (boardArea === a) + '">' + esc(a) + '</button>').join('')
       + '<button class="chip" type="button" id="only-dead" aria-pressed="' + boardDead + '">Only passed dates</button>'
       + (filtered ? '<button class="chip" type="button" id="clear-filter">Clear filter ×</button>' : '') + '</div>'
-      + (b.items.length ? newsHtml + '<h2 class="section-title">Lanes <span>' + (filtered ? 'filtered, ' : '') + shown.filter((i) => ['HIGH', 'MID', 'LOW'].includes(i.status)).length + ' of ' + b.items.filter((i) => ['HIGH', 'MID', 'LOW'].includes(i.status)).length + ' cards</span></h2><div class="lanes">' + ['HIGH', 'MID', 'LOW'].map((n) => lane(n, shown.filter((i) => i.status === n))).join('') + '</div>' + stagesHtml : '<div class="empty">Board not available: ' + esc(b.error || 'still loading') + '</div>')
+      + (b.items.length ? newsHtml + '<h2 class="section-title">Lanes <span>' + (filtered ? 'filtered, ' : '') + shown.filter((i) => ['HIGH', 'MID', 'LOW'].includes(i.status)).length + ' of ' + b.items.filter((i) => ['HIGH', 'MID', 'LOW'].includes(i.status)).length + ' cards</span></h2><div class="lanes">' + ['HIGH', 'MID', 'LOW'].map((n) => lane(n, shown.filter((i) => i.status === n))).join('') + '</div>' + (managed ? stagesHtml : '') : '<div class="empty">' + esc(nothing) + '</div>')
       + srcLine('board'));
     $$('[data-area]').forEach((el) => { el.onclick = () => setBoardFilter(el.dataset.area, boardDead); });
     $('#only-dead').onclick = () => setBoardFilter(boardArea, !boardDead);
@@ -1279,7 +1294,7 @@
   function renderAsk() {
     const st = ask.status;
     const plan = st && st.plan ? st.plan.charAt(0).toUpperCase() + st.plan.slice(1) : 'Claude';
-    const sub = st && st.ready ? 'Answers from your vault through Claude Code on your ' + plan + ' plan. It can only read.' : 'Answers from your vault through Claude Code. It can only read.';
+    const sub = st && st.ready ? 'Answers from your notes through Claude Code on your ' + plan + ' plan. It can only read, and only your notes folder.' : 'Answers from your notes through Claude Code. It can only read, and only your notes folder.';
     pageWrap(pageHead('Ask', sub)
       + '<div class="ask-wrap"><div class="thread" id="thread"></div>'
       + (st && !st.ready ? '<div class="msg bot err">' + esc(st.reason) + '</div>' : '')
@@ -1431,8 +1446,10 @@
       + (f.suggest ? ' Suggested: "' + esc(f.suggest.title) + '" by ' + weekdayOf(f.suggest.due) + ' ' + dayMonth(f.suggest.due) + '.' : '') + '</small>',
       (f.date ? '<span class="pill">' + weekdayOf(f.date) + ' ' + dayMonth(f.date) + (f.time ? ' ' + esc(f.time) : '') + '</span>' : '') + '<span class="pill ' + LABEL[f.kind][1] + '">' + LABEL[f.kind][0] + '</span>',
       f.route ? '#' + f.route : (f.note ? noteHref(f.note) : (f.date ? '#day/' + f.date : ''))));
-    const quiet = S.calendarConnected ? 'every meeting in the next ' + sc.days + ' days has a card, task or note, and every HIGH card has a date'
-      : 'the calendar is not connected, so meetings are not checked';
+    const cal = S.sources.find((s) => s.id === 'calendar') || {};
+    const quiet = !S.calendarConnected ? 'the calendar is not connected, so meetings are not checked'
+      : cal.state === 'unknown' ? 'N/A, the calendar could not be read'
+      : 'every one-off meeting in the next ' + sc.days + ' days has a card, task or note, and every HIGH card has a date';
     return '<h2 class="section-title">On track? <span>' + (sc.items.length ? sc.items.length + ' to look at: meetings in the next ' + sc.days + ' days, tasks and the board' : quiet) + '</span></h2>'
       + (sc.items.length ? '<div class="rows">' + rows.join('') + '</div>' : '');
   }
@@ -1453,7 +1470,10 @@
   let PHONE = null;
   function phoneHtml(P) {
     if (!P) return '<p class="note">Checking…</p>';
-    if (!P.on) return '<button class="btn" type="button" id="ph-on">Use Brento on my phone</button>';
+    const win = !!SETUP && SETUP.platform === 'win32', mac = !!SETUP && SETUP.platform === 'darwin';
+    if (!P.on) return '<button class="btn" type="button" id="ph-on">Use Brento on my phone</button>'
+      + (win ? '<p class="note">Windows then asks about Python. That is Brento: click Allow. On a computer you are not the administrator of, it asks once for the administrator.</p>' : '')
+      + (mac ? '<p class="note">If macOS asks whether Brento may accept connections, click Allow.</p>' : '');
     const addr = (a) => '<b class="ph-addr">' + esc(a.ip) + ':' + P.port + '</b>';
     const home = P.addresses.filter((a) => a.kind === 'home'), away = P.addresses.filter((a) => a.kind === 'tailscale');
     let html = P.error ? '<p class="tools-error">' + esc(P.error) + '</p>' : '';
@@ -1464,7 +1484,8 @@
       + ' <button class="link-btn" type="button" id="ph-code">New code</button></li></ol>';
     if (away.length) html += '<p class="note">Away from home, with Tailscale on the phone and this computer: ' + away.map(addr).join(' or ') + '</p>';
     return html + '<p class="note">' + (P.phones === 1 ? 'One phone is paired.' : P.phones + ' phones are paired.') + ' A phone reads Brento and can ask, it can never change the setup. '
-      + 'On Windows, allow Python on private networks when it asks. Use it at home or over Tailscale, not on public Wi-Fi.</p>'
+      + 'Use it at home or over Tailscale, not on public Wi-Fi.</p>'
+      + (win ? '<p class="note">The phone cannot open the address? Open Windows Security, Firewall & network protection, Allow an app through firewall, Change settings, and tick the Python in the Brento folder. And set your Wi-Fi to Private network.</p>' : '')
       + '<p class="note">' + (P.phones ? '<button class="link-btn" type="button" id="ph-forget">Remove all phones</button> · ' : '') + '<button class="link-btn" type="button" id="ph-off">Switch off</button></p>';
   }
   function paintPhone() {
@@ -1509,7 +1530,8 @@
       '<div class="setup-grid">' + SETUP.vaults.map((v) => setupOpt('radio', 'su-vault', v.path, P.vault === v.path || (!P.vault && SETUP.needed && v.open), v.name, v.path + (v.open ? ' · open in Obsidian' : ''))).join('')
       + setupOpt('radio', 'su-vault', '__other', !!P.vault && !listed, 'Another folder', 'Type its full path below')
       + setupOpt('radio', 'su-vault', '', !P.vault && !(SETUP.needed && SETUP.vaults.some((v) => v.open)), 'No vault', 'Calendar and board only. Notes, tasks and Ask stay off.') + '</div>'
-      + '<div class="setup-field"><label for="su-vault-path">Folder path</label><input id="su-vault-path" value="' + esc(listed ? '' : P.vault) + '" spellcheck="false" placeholder="Full path of the vault folder"></div>');
+      + '<div class="setup-field"><label for="su-vault-path">Folder path</label><input id="su-vault-path" value="' + esc(listed ? '' : P.vault) + '" spellcheck="false" placeholder="Full path of the vault folder"></div>'
+      + (SETUP.vaultMissing ? '<p class="tools-error">This folder is not there at the moment: ' + esc(P.vault) + '. It may have been renamed, or its drive is not connected. Brento goes on without your notes until you choose the folder again here.</p>' : ''));
     html += step('3', 'Sources', '', 'Switch on what you use. A source that is on but cannot be read shows N/A on the Brain page, never an empty success.',
       grouped(SETUP.sources).map((g) => '<div class="setup-group">' + esc(g.name) + '</div><div class="setup-grid">' + g.items.map((s) => '<div>' + setupOpt('checkbox', 'su-src', s.id, on(s), s.label, s.about)
         + (s.path ? '<div class="setup-field"><label for="su-path-' + s.id + '">Note in the vault</label><input id="su-path-' + s.id + '" data-path="' + s.id + '" value="' + esc((P.sources[s.id] || {}).path || s.path) + '" spellcheck="false"></div>' : '') + '</div>').join('') + '</div>').join('')
@@ -1525,8 +1547,7 @@
       + '<div class="setup-field"><button class="btn" type="button" id="su-probe">Check the board</button></div></div><div id="su-fields">' + boardFields(null) + '</div>');
     html += step('5', 'Calendar', setupStatus(SETUP.calendarConnected, SETUP.calendarConnected ? 'connected' : 'not connected'), 'A private iCal link, read only. It stays in a file in your Brento folder and never goes back to a page.',
       SETUP.calendarConnected ? '<p class="note">Connected. <button class="link-btn" type="button" id="cal-off">Disconnect</button></p>'
-        : '<form class="cal-form" id="cal-form"><p class="note">Google: Settings, your calendar, Integrate calendar, "Secret address in iCal format". Outlook: Settings, Calendar, Shared calendars, Publish a calendar, the ICS link.</p>'
-        + '<div><input id="cal-url" type="password" placeholder="Paste the link" autocomplete="off" spellcheck="false"><button class="btn" type="submit">Connect</button></div><p class="tools-error" id="cal-error" role="alert"></p></form>');
+        : '<p class="note"><a class="link-btn" href="#setup/3">Connect your calendar</a>: Google, Outlook or Apple iCloud, in four short steps. Repeating appointments are left out.</p>');
     const C = SETUP.claude;
     html += step('6', 'Ask box', C ? setupStatus(C.ready, C.ready ? 'Claude Code ready' + (C.plan ? ', ' + C.plan : '') : 'not ready') : '<span class="pill">off</span>',
       'Questions about your notes, answered by the claude program on this computer under your own Claude login. Brento never sees or stores the login, and refuses to run on an API key, so it cannot cause a bill.',
@@ -1552,7 +1573,7 @@
     const slGo = $('#sl-go'), slTest = $('#sl-test'), slOff = $('#sl-off');
     if (slGo) slGo.onclick = () => slack({ url: $('#sl-url').value }, 'Slack connected. A test message is in your channel.');
     if (slTest) slTest.onclick = () => slack({ test: true }, 'Test sent. Check Slack.');
-    if (slOff) slOff.onclick = () => slack({ url: '' }, 'Slack disconnected.');
+    if (slOff) slOff.onclick = () => slack({ disconnect: true }, 'Slack disconnected.');
     const path = $('#su-vault-path');
     path.oninput = () => { const other = $('input[name="su-vault"][value="__other"]'); if (other && path.value.trim()) other.checked = true; };
     $('#su-probe').onclick = async () => {
@@ -1563,7 +1584,7 @@
           body: JSON.stringify({ owner: $('#su-owner').value.trim(), ownerType: $('#su-kind').value, number: Number($('#su-num').value) || 0 }) });
         const j = await r.json();
         $('#su-fields').innerHTML = boardFields(r.ok ? j : { error: j.error });
-      } catch (err) { $('#su-fields').innerHTML = boardFields({ error: 'The Brento server is not answering.' }); } finally { b.disabled = false; }
+      } catch (err) { $('#su-fields').innerHTML = boardFields({ error: 'Brento is not answering.' }); } finally { b.disabled = false; }
     };
     $('#su-save').onclick = async () => {
       const pick = ($('input[name="su-vault"]:checked') || {}).value || '';
@@ -1605,7 +1626,7 @@
   const CAL_HELP = {
     google: { name: 'Google', open: 'https://calendar.google.com/calendar/r/settings', steps: ['Open your Google Calendar settings.', 'On the left, under "Settings for my calendars", click your calendar.', 'Click "Integrate calendar".', 'Copy "Secret address in iCal format" and paste it below.'] },
     outlook: { name: 'Outlook', open: 'https://outlook.office.com/calendar/', steps: ['Open your Outlook calendar.', 'Open Settings, then "Shared calendars".', 'Under "Publish a calendar", pick your calendar and the detail level, then click "Publish".', 'Copy the ICS link and paste it below.'] },
-    apple: { name: 'Apple iCloud', open: 'https://www.icloud.com/calendar/', steps: ['Open iCloud Calendar.', 'Point at your calendar on the left and click its info button.', 'Turn on "Public Calendar" and click "Copy".', 'Paste the link below.'] }
+    apple: { name: 'Apple iCloud', open: 'https://www.icloud.com/calendar/', steps: ['Open iCloud Calendar.', 'Point at your calendar on the left and click its info button.', 'Turn on "Public Calendar" and click "Copy". Anyone who has this link can read the calendar, so keep it to yourself.', 'Paste the link below.'] }
   };
   const post = (url, body) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Leitstand': '1' }, body: JSON.stringify(body || {}) })
     .then(async (r) => { const j = await r.json(); if (!r.ok) throw new Error(j.error || 'HTTP ' + r.status); return j; });
@@ -1614,20 +1635,26 @@
     if (S && S.phone) { pageWrap(pageHead('Welcome', 'Brento is set up on your computer. Open it there to change anything.')); return; }
     pageWrap('<div class="wz" id="wz"><section class="wz-card"><p class="wz-lead">Looking around this computer…</p></section></div>');
     fetch('/api/wizard').then(async (r) => { const j = await r.json(); if (!r.ok) throw new Error(j.error || 'HTTP ' + r.status); return j; }).then((d) => {
+      // In the middle of the first setup nothing is saved yet, so what was typed and chosen stays.
+      const keep = !!WZ.data && WZ.data.needed && d.needed;
       WZ.data = d;
-      WZ.name = d.name || '';
-      const open = d.vaults.find((v) => v.open) || d.vaults[0];
-      WZ.vault = d.profile.vault || (open ? open.path : '');
-      WZ.other = !!d.profile.vault && !d.vaults.some((v) => v.path === d.profile.vault);
-      const b = d.profile.board;
-      WZ.board = b.owner && b.number ? Object.assign({ title: 'Board ' + b.number, lanesFound: true }, b) : null;
       WZ.calOk = d.calendarConnected;
       WZ.slackOn = d.slackConnected;
       const T = d.team;
-      WZ.slack = Object.assign({ digest: '08:00', alerts: true, remind: 10 }, (T && T.slack) || {}, d.profile.slack && d.profile.slack.digest !== undefined && !d.needed ? d.profile.slack : {});
+      if (!keep) {
+        WZ.name = d.name || '';
+        const open = d.vaults.find((v) => v.open) || d.vaults[0];
+        WZ.vault = d.profile.vault || (d.needed && open ? open.path : '');
+        WZ.other = !!d.profile.vault && !d.vaults.some((v) => v.path === d.profile.vault);
+        const b = d.profile.board;
+        WZ.board = b.owner && b.number ? Object.assign({ title: 'Board ' + b.number, lanesFound: true }, b) : null;
+        WZ.tools = null;
+        WZ.msg = '';
+        WZ.slack = Object.assign({ digest: '08:00', alerts: true, remind: 10 }, (T && T.slack) || {}, d.profile.slack && d.profile.slack.digest !== undefined && !d.needed ? d.profile.slack : {});
+      }
       if (T && T.calendar) WZ.provider = T.calendar;
       WZ.teamTried = false;
-      // #setup/3 opens a given step, so a reload keeps the place.
+      // #setup/3 opens a given step.
       WZ.step = clamp(Number(routeId) || 0, 0, WZ_STEPS.length - 1);
       if (WZ.vault) vaultStats();
       paintWizard();
@@ -1637,7 +1664,15 @@
     WZ.stats = null;
     fetch('/api/wizard/vault?path=' + encodeURIComponent(WZ.vault)).then((r) => r.json()).then((j) => { WZ.stats = j; if (WZ_STEPS[WZ.step] === 'notes') paintWizard(); }).catch(() => {});
   }
-  function wzGo(delta) { clearInterval(WZ.timer); WZ.msg = ''; WZ.step = clamp(WZ.step + delta, 0, WZ_STEPS.length - 1); paintWizard(); }
+  function wzGo(delta) {
+    clearInterval(WZ.timer);
+    WZ.msg = '';
+    WZ.step = clamp(WZ.step + delta, 0, WZ_STEPS.length - 1);
+    // The address names the step, so a reload of the page keeps the place. Replacing it fires no route change.
+    routeId = WZ.step ? String(WZ.step) : null;
+    history.replaceState(null, '', '#setup' + (WZ.step ? '/' + WZ.step : ''));
+    paintWizard();
+  }
   // While a sign-in runs, ask every few seconds whether it is done, so nobody has to press anything here.
   function wzPoll() {
     clearInterval(WZ.timer);
@@ -1714,8 +1749,12 @@
     if (WZ.other) html += '<div class="setup-field"><label for="wz-path">Folder path</label><input id="wz-path" value="' + esc(WZ.vault) + '" spellcheck="false" placeholder="Full path of your vault folder"></div>';
     if (WZ.vault && WZ.stats) html += WZ.stats.error ? wzWarn(esc(WZ.stats.error)) : wzOk('Found ' + WZ.stats.notes.toLocaleString('en-GB') + ' notes and ' + WZ.stats.tasks + (WZ.stats.tasks === 1 ? ' task' : ' tasks') + ' with a date.');
     else if (WZ.vault) html += '<p class="wz-lead">Counting notes…</p>';
+    if (d.platform === 'darwin' && /\/(Documents|Desktop|Downloads|Library\/(Mobile Documents|CloudStorage))(\/|$)/.test(WZ.vault)) html += '<p class="note">macOS may ask whether Brento may read this folder. Click Allow.</p>';
     return html;
   }
+  // Said before the click: GitHub's own page asks for more than Brento uses, and in another program's name.
+  const WZ_GITHUB = '<p class="note">GitHub then asks you to authorize <b>GitHub CLI</b>. That is GitHub\'s own program, which Brento uses. It always asks for repositories, gists, organizations and projects, to read and to write. '
+    + 'Brento reads your boards and your list of repositories with it, and writes only when you click for it: a new board, or the lanes on one. You can take it back any time under <a href="https://github.com/settings/applications" target="_blank" rel="noopener noreferrer">github.com/settings/applications</a>.</p>';
   function wzBoard() {
     const d = WZ.data, gh = d.gh;
     let html = '<h2>Your to-do board</h2><p class="wz-lead">Brento reads a free GitHub Project board with three lanes: HIGH, MID and LOW. A HIGH card with a date reaches your home screen in time.</p>';
@@ -1726,9 +1765,9 @@
       return html;
     }
     if (!gh.ready && /not signed in/i.test(gh.reason)) {
-      return html + (running ? '' : '<p>Sign in to GitHub once. A free account is enough.</p><button class="btn primary" type="button" data-open="gh-login">Sign in to GitHub</button>') + wzCode('gh-login') + busy;
+      return html + (running ? '' : '<p>Sign in to GitHub once. A free account is enough.</p><button class="btn primary" type="button" data-open="gh-login">Sign in to GitHub</button>' + WZ_GITHUB) + wzCode('gh-login') + busy;
     }
-    if (!gh.ready) return html + (running ? '' : '<p>Brento needs permission to read your boards.</p><button class="btn primary" type="button" data-open="gh-scope">Allow it</button>') + wzCode('gh-scope') + busy;
+    if (!gh.ready) return html + (running ? '' : '<p>GitHub still has to allow the access to your boards.</p><button class="btn primary" type="button" data-open="gh-scope">Allow it</button>' + WZ_GITHUB) + wzCode('gh-scope') + busy;
     if (WZ.boardBusy) return html + '<p class="wz-wait">' + esc(WZ.boardBusy) + '</p>';
     const T = d.team;
     if (T && T.board.owner && T.board.number && !WZ.board && !WZ.teamTried) {
@@ -1749,7 +1788,7 @@
   }
   function wzCalendar() {
     const help = CAL_HELP[WZ.provider];
-    let html = '<h2>Your calendar</h2><p class="wz-lead">Brento reads your appointments through a private link, read only. Meetings where people wait for you reach your home screen, with the join button.</p>';
+    let html = '<h2>Your calendar</h2><p class="wz-lead">Brento reads your appointments through a link, read only. Meetings where people wait for you reach your home screen, with the join button. Repeating appointments are left out.</p>';
     if (WZ.calOk) return html + wzOk(WZ.calEvents === null ? 'Calendar connected.' : 'Connected: ' + WZ.calEvents + (WZ.calEvents === 1 ? ' appointment' : ' appointments') + ' in the next three months.') + '<button class="btn" type="button" id="wz-calagain">Use another calendar</button>';
     html += '<div class="wz-tabs">' + Object.keys(CAL_HELP).map((k) => '<button type="button" class="wz-tab' + (k === WZ.provider ? ' on' : '') + '" data-provider="' + k + '">' + CAL_HELP[k].name + '</button>').join('') + '</div>';
     html += '<ol class="wz-steps">' + help.steps.map((s, i) => '<li>' + esc(s) + (i === 0 ? ' <a href="' + help.open + '" target="_blank" rel="noopener noreferrer">Open it</a>' : '') + '</li>').join('') + '</ol>';
@@ -1781,7 +1820,7 @@
       if (d.claude && d.claude.ready) pick.add('claude');
       WZ.tools = pick;
     }
-    return '<h2>Your apps</h2><p class="wz-lead">Pick the apps you use every day. They sit in Brento\'s dock and open in their own window.</p><div class="wz-apps">'
+    return '<h2>Your apps</h2><p class="wz-lead">Pick the apps you use every day. They sit in Brento\'s dock and open in their own window.</p><p class="note">Their logos come from Google\'s icon service. An app you add yourself later gets a letter, so nobody learns its address.</p><div class="wz-apps">'
       + d.catalog.map((t) => '<label class="wz-app' + (t.added ? ' done' : '') + '"><input type="checkbox" data-tool="' + esc(t.id) + '"' + (WZ.tools.has(t.id) ? ' checked' : '') + (t.added ? ' disabled' : '') + '><span>' + esc(t.name) + '</span></label>').join('') + '</div>';
   }
   function wzDone() {
@@ -1826,7 +1865,7 @@
     const dots = name === 'done' ? '' : '<div class="wz-dots" aria-label="Step ' + (WZ.step + 1) + ' of 6">' + WZ_STEPS.slice(0, 6).map((s, i) => '<i class="' + (i < WZ.step ? 'done' : i === WZ.step ? 'on' : '') + '"></i>').join('') + '</div>';
     let body = '', next = 'Next', skip = false;
     if (name === 'welcome') {
-      body = '<h2>Welcome to ' + (WZ.data.team && WZ.data.team.team ? esc(WZ.data.team.team) + '\'s Brento' : 'Brento') + '</h2><p class="wz-lead">One screen that tells you what needs you today: your tasks, your board and your meetings. Setup takes about two minutes, and everything stays on this computer.</p>'
+      body = '<h2>Welcome to ' + (WZ.data.team && WZ.data.team.team ? esc(WZ.data.team.team) + '\'s Brento' : 'Brento') + '</h2><p class="wz-lead">One screen that tells you what needs you today: your tasks, your board and your meetings. Setup takes about two minutes. Brento runs on this computer and keeps its settings here.</p>'
         + '<div class="setup-field"><label for="wz-name">What should Brento call you?</label><input id="wz-name" maxlength="40" value="' + esc(WZ.name) + '" autocomplete="given-name"></div>';
       next = 'Let\'s go';
     } else if (name === 'notes') body = wzNotes();
@@ -1835,6 +1874,7 @@
     else if (name === 'slack') { body = wzSlack(); skip = !WZ.slackOn; }
     else if (name === 'tools') { body = wzTools(); next = 'Finish'; }
     else body = wzDone();
+    if (!WZ.data.needed && name !== 'done') body += '<p class="note"><button class="link-btn" type="button" id="wz-close">Close the setup</button></p>';
     const nav = name === 'done' ? '<div class="wz-nav"><span></span><button class="btn primary" type="button" id="wz-home">Open Brento</button></div>'
       : '<div class="wz-nav">' + (WZ.step ? '<button class="btn" type="button" id="wz-back">Back</button>' : '<span></span>') + '<span class="wz-right">'
         + (skip ? '<button class="link-btn" type="button" id="wz-skip">Skip for now</button>' : '') + '<button class="btn primary" type="button" id="wz-next">' + next + '</button></span></div><p class="tools-error" id="wz-error" role="alert"></p>';
@@ -1845,7 +1885,8 @@
     const on = (sel, fn) => { const el = $(sel); if (el) el.onclick = fn; };
     on('#wz-back', () => wzGo(-1));
     on('#wz-skip', () => wzGo(1));
-    on('#wz-home', () => { stateText = ''; load(); navigate('home'); });
+    on('#wz-home', () => { WZ.data = null; stateText = ''; load(); navigate('home'); });
+    on('#wz-close', () => { WZ.data = null; stateText = ''; load(); navigate('home'); });
     on('#wz-team', () => post('/api/team', { team: WZ.board.owner, tools: Array.from(WZ.tools || []), calendar: WZ.calOk ? WZ.provider : '' })
       .then(() => { WZ.teamSaved = true; paintWizard(); }).catch((err) => toast(err.message)));
     $$('#wz [data-open]').forEach((b) => { b.onclick = () => wzOpen(b.dataset.open, b.dataset.open === 'gh-install' ? 'Downloading the GitHub program from github.com. This page moves on by itself when it is done.'
@@ -1871,13 +1912,13 @@
       on('#wz-calagain', () => { WZ.calOk = false; paintWizard(); });
       on('#wz-calgo', () => {
         const b = $('#wz-calgo'); b.disabled = true; b.textContent = 'Checking…';
-        post('/api/calendar', { url: $('#wz-cal').value, check: true }).then((j) => { WZ.calOk = true; WZ.calEvents = j.events; WZ.msg = ''; }).catch((err) => { WZ.msg = err.message; }).finally(paintWizard);
+        post('/api/calendar', { url: $('#wz-cal').value }).then((j) => { WZ.calOk = j.connected; WZ.calEvents = j.events; WZ.msg = ''; }).catch((err) => { WZ.msg = err.message; }).finally(paintWizard);
       });
     }
     if (name === 'slack') {
       on('#wz-slackgo', () => {
         const b = $('#wz-slackgo'); b.disabled = true; b.textContent = 'Sending a test…';
-        post('/api/slack', { url: $('#wz-slack').value }).then(() => { WZ.slackOn = true; WZ.msg = ''; }).catch((err) => { WZ.msg = err.message; }).finally(paintWizard);
+        post('/api/slack', { url: $('#wz-slack').value }).then((j) => { WZ.slackOn = j.connected; WZ.msg = ''; }).catch((err) => { WZ.msg = err.message; }).finally(paintWizard);
       });
       const keep = () => { const t = $('#wz-digest'), r = $('#wz-remind'), a = $('#wz-alerts'); if (t) WZ.slack = { digest: t.value || '', remind: Number(r.value), alerts: a.checked, sources: WZ.slack.sources }; };
       $$('#wz-digest, #wz-remind, #wz-alerts').forEach((el) => { el.onchange = keep; });
@@ -1923,7 +1964,7 @@
   function popAlert() {
     const box = $('#alert-pop');
     if (route === 'home') { S.alerts.forEach((a) => ack(a.id)); closeAlert(); return; }
-    if (!box.hidden || route === 'ask' || !$('#palette').hidden || !$('#tools').hidden) return;
+    if (!box.hidden || ['ask', 'setup', 'settings'].includes(route) || !$('#palette').hidden || !$('#tools').hidden) return;
     const seen = ackGet();
     const a = S.alerts.find((x) => seen[x.id] !== S.today);
     if (!a) return;
@@ -1974,6 +2015,8 @@
   async function load() {
     try {
       const res = await fetch('/api/state');
+      // This browser is no longer let in. The page that comes back says how to get in again.
+      if (res.status === 401) { location.reload(); return; }
       if (!res.ok) throw new Error('HTTP ' + res.status);
       const text = await res.text();
       const now = new Date();
@@ -1989,11 +2032,11 @@
       renderTop();
       renderStrip();
       renderDock();
-      // The same goes for a note being read: a data refresh leaves the Library alone.
-      if (route !== 'ask' && route !== 'library') refreshInPlace();
+      // The same goes for a note being read, for the setup and for the settings: new data never starts them over.
+      if (!['ask', 'library', 'setup', 'settings'].includes(route)) refreshInPlace();
       popAlert();
     } catch (err) {
-      if (!S) $('#view').innerHTML = '<div class="offline"><b>The Brento server is not answering.</b><br>Start it with <code>python server.py</code> in the Brento folder.</div>';
+      if (!S) $('#view').innerHTML = '<div class="offline"><b>Brento is not answering.</b><br>On the computer, open it with its icon: press the Windows key, or Cmd and Space on a Mac, type Brento and press Enter. On a phone: is the computer on, and in the same Wi-Fi?</div>';
     }
   }
 
@@ -2011,7 +2054,7 @@
       await load();
       toast(j.problems.length ? 'Not everything could be read. ' + j.problems.join(' ') : stateText === before ? 'Up to date. Nothing changed.' : 'Updated.');
     } catch (err) {
-      toast('Could not refresh. The Brento server is not answering.');
+      toast('Could not refresh. Brento is not answering.');
     } finally {
       b.classList.remove('busy');
       b.removeAttribute('aria-busy');

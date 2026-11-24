@@ -13,6 +13,8 @@ import json
 import re
 import secrets
 import socket
+import subprocess
+import sys
 import threading
 import time
 from pathlib import Path
@@ -24,6 +26,7 @@ CODE_TRIES = 5
 MAX_DEVICES = 20
 TOKEN = re.compile(r"^[0-9a-f]{64}$")
 TAILSCALE = ipaddress.ip_network("100.64.0.0/10")
+INET = re.compile(r"\binet (?:addr:)?(\d+\.\d+\.\d+\.\d+)")
 # Before pairing, a phone gets the pairing page and the icons for its home screen, nothing else.
 OPEN_PATHS = {"/icon.svg", "/apple-touch-icon.png", "/icon-512.png", "/manifest.webmanifest"}
 # After pairing: the page and what it reads. Anything else stays on the computer.
@@ -56,6 +59,27 @@ def kind(ip):
     return "home" if addr.is_private else ""
 
 
+def own_addresses():
+    """This computer's addresses on all its adapters. Windows gives them for its own name at once. Elsewhere looking
+    the name up goes out to the network: it can take half a minute, and on a Mac it raises the question whether Brento
+    may find devices on the local network. So there the system's own list is read."""
+    if sys.platform == "win32":
+        try:
+            return [info[4][0] for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET)]
+        except OSError:
+            return []
+    for args in (["/sbin/ifconfig"], ["ip", "-4", "-o", "addr"], ["hostname", "-I"]):
+        try:
+            text = subprocess.run(args, capture_output=True, timeout=5, stdin=subprocess.DEVNULL).stdout.decode("utf-8", "replace")
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if args[0] == "hostname":
+            return text.split()
+        if INET.search(text):
+            return INET.findall(text)
+    return []
+
+
 def lan_addresses():
     """The addresses a phone can type. The one this computer uses to reach the internet comes first; virtual
     adapters (WSL, Hyper-V, Docker) also carry private addresses, so they are left out when that one is known."""
@@ -70,12 +94,8 @@ def lan_addresses():
             probe.close()
     except OSError:
         primary = ""
-    try:
-        listed = [info[4][0] for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET)]
-    except OSError:
-        listed = []
     found = []
-    for ip in [primary] + listed:
+    for ip in [primary] + own_addresses():
         k = kind(ip)
         if not k or any(f["ip"] == ip for f in found):
             continue

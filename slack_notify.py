@@ -22,12 +22,16 @@ MANIFEST = {"display_information": {"name": "Brento", "description": "Your day f
 CREATE_URL = "https://api.slack.com/apps?new_app=1&manifest_json=" + urllib.parse.quote(json.dumps(MANIFEST))
 # How late a morning summary may still go out, for a computer that was off at the set time.
 DIGEST_WINDOW = timedelta(hours=3)
+# How long it waits for a source that has not been read yet, such as a calendar right after the computer starts.
+DIGEST_WAIT = timedelta(minutes=15)
 MAX_LINES = 8
 MAX_SEEN = 300
 
 
 def clean_hook(url):
     url = str(url or "").strip()
+    if not url:
+        raise ValueError("Paste the link first.")
     if not HOOK.match(url):
         raise ValueError("That is not a Slack webhook link. It starts with https://hooks.slack.com/services/")
     return url
@@ -44,7 +48,13 @@ def link(url, label):
 
 
 def event_matters(event):
-    return event.get("people", 0) >= 2 or event.get("conference") or "!" in event.get("title", "")
+    return event.get("people", 0) >= 2 or event.get("conference") or event.get("join") or "!" in event.get("title", "")
+
+
+def unread(state, allowed):
+    """The sources a summary stands on that could not be read. One the owner never connected does not count."""
+    return [s["label"] for s in state.get("sources", []) if s["id"] in allowed and s.get("state") == "unknown"
+            and s.get("note") != "not connected yet"]
 
 
 def plan(state, cfg, memory, now, name=""):
@@ -72,8 +82,16 @@ def plan(state, cfg, memory, now, name=""):
     if digest and memory.get("digest") != today:
         at = datetime.combine(now.date(), datetime.strptime(digest, "%H:%M").time())
         if at <= now <= at + DIGEST_WINDOW:
-            out.append(summary(state, alerts, name))
-            memory["digest"] = today
+            missing = unread(state, allowed)
+            try:
+                since = datetime.fromisoformat(str(memory.get("waiting") or ""))
+            except ValueError:
+                since = None
+            if missing and (since is None or since.date() != now.date()):
+                memory["waiting"] = now.isoformat()
+            elif not missing or now - since >= DIGEST_WAIT:
+                out.append(summary(state, alerts, name, missing))
+                memory["digest"] = today
         elif now > at + DIGEST_WINDOW:
             memory["digest"] = today
 
@@ -102,10 +120,12 @@ def line(alert):
     return "• *%s*%s: %s%s" % (esc(alert["title"]), tag, esc(alert.get("why", "")), ("  " + join) if join else "")
 
 
-def summary(state, alerts, name):
+def summary(state, alerts, name, missing=()):
     hello = "Good morning%s." % (", " + esc(name) if name else "")
+    if missing:
+        hello += " N/A: %s could not be read, so something may be missing." % esc(", ".join(missing))
     if not alerts:
-        body = ["Nothing needs you today. Enjoy the calm."]
+        body = ["In what could be read, nothing needs you today." if missing else "Nothing needs you today. Enjoy the calm."]
     else:
         body = ["%d thing%s need%s you:" % (len(alerts), "" if len(alerts) == 1 else "s", "s" if len(alerts) == 1 else "")]
         body += [line(a) for a in alerts[:MAX_LINES]]
@@ -138,8 +158,12 @@ class Slack:
     def connected(self):
         return bool(self.url())
 
-    def connect(self, url):
+    def connect(self, url, hello):
+        """Keeps a link only after a first message has gone through it, so a wrong one never replaces one that works."""
         url = clean_hook(url)
+        error = self.send(hello, url)
+        if error:
+            raise ValueError(error)
         self.hook_path.parent.mkdir(parents=True, exist_ok=True)
         self.hook_path.write_text(url, encoding="utf-8")
         try:
@@ -158,9 +182,9 @@ class Slack:
             except OSError:
                 pass
 
-    def send(self, text):
+    def send(self, text, url=""):
         """Posts one message. Returns "" or a reason, never the link itself."""
-        url = self.url()
+        url = url or self.url()
         if not url:
             return "Slack is not connected."
         body = json.dumps({"text": text}).encode("utf-8")
@@ -185,11 +209,15 @@ class Slack:
                 memory = json.loads(self.memory_path.read_text(encoding="utf-8"))
             except (OSError, ValueError):
                 memory = {}
+            before = memory
             texts, memory = plan(state, cfg, memory, now or datetime.now(), name)
             sent = []
             for text in texts:
                 if not self.send(text):
                     sent.append(text)
+            if texts and not sent:
+                # Nothing got through, for example on a Wi-Fi that is still waking up. The next round tries again.
+                memory = before
             temp = self.memory_path.with_suffix(".tmp")
             temp.write_text(json.dumps(memory), encoding="utf-8")
             temp.replace(self.memory_path)
