@@ -9,8 +9,8 @@ One file to install, on Mac and Windows. **If you use 0.1.0, please update:** th
 holes, see *Safer*.
 
 Updating from 0.1.0: open the new installer. It keeps your setup and takes over the start at login. After that you can
-delete the unpacked 0.1.0 folder. From now on open Brento with its icon: a bookmark works again after that, in the
-same browser.
+delete the unpacked 0.1.0 folder. From now on Brento opens with its icon: a browser has to be let in by it once, and
+bookmarks in that browser work after that.
 
 **New**
 
@@ -26,12 +26,15 @@ same browser.
 **Safer**
 
 - Brento opens only for the person it belongs to. In 0.1.0 another account on the same computer could open it as well.
+  A browser is let in once by the icon, gets a word of its own, and signs every request with it without ever sending it.
 - A link on a web page can no longer make Brento look into a folder. In 0.1.0 it could, and on Windows a folder on a
   stranger's server would have received an encrypted form of your Windows password.
-- The Ask box reads your notes folder and nothing else, and settings or hooks inside that folder do not count. In 0.1.0
-  a notes folder from someone else could start a program, and a question could read other files.
+- The Ask box reads your notes folder and nothing else, and no settings files or hooks count. In 0.1.0 a notes folder from
+  someone else could start a program, and a question could read other files. It is off until you switch it on; the setup
+  no longer does that by itself.
 - A web page that lies among your notes gets none of Brento's rights. In 0.1.0 its scripts had them.
-- Addresses of apps you add to the dock yourself no longer go to Google's icon service.
+- Addresses of apps you add to the dock yourself no longer go to Google's icon service, and GitHub's program is told not
+  to send its usage reports.
 
 **Fixed**
 
@@ -41,10 +44,11 @@ same browser.
   says so, and you can choose the folder again.
 - *Connect* with an empty field no longer reports success, and a wrong calendar or Slack link no longer replaces one
   that works.
-- A source that could not be read is never called quiet any more, neither on Home nor in the Slack summary. The summary
-  waits a moment for it and then names it. Nothing goes to Slack before the setup is finished.
+- A source that could not be read, or that stopped answering, is never called quiet any more, neither on Home nor in the
+  Slack summary. The summary waits a moment for it and then names it. Nothing goes to Slack before the setup is finished.
+- Coming back to the setup for one thing, such as the calendar, shows and saves only that.
 - Meetings from other time zones show the right hour on Windows, and everywhere for Outlook calendars.
-- Outlook meetings with a join link reach Home, although Outlook's link names no guests.
+- Outlook meetings with a link to a call reach Home, although Outlook's link names no guests.
 - On a Mac the start no longer waits for the network, up to 35 seconds in some places, and no longer raises the question
   about devices on the local network. The setup no longer makes macOS offer its developer tools.
 - The Board page belongs to your board: no foreign project number, and an empty board says that it is empty.

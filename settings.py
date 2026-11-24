@@ -306,8 +306,8 @@ def load():
         raise SystemExit("Brento did not start: %s cannot be used: %s" % (target, exc))
 
 
-def save(data):
-    clean = normalize(data)
+def save(data, same_vault=False):
+    clean = normalize(data, saved=same_vault)
     with _lock:
         target = path()
         target.parent.mkdir(parents=True, exist_ok=True)

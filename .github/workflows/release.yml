@@ -58,7 +58,7 @@ jobs:
       - name: Page and shell scripts parse
         if: matrix.os == 'ubuntu-latest'
         run: |
-          for f in web/app.js web/art.js; do node --check "$f" || exit 1; done
+          for f in web/app.js web/art.js web/sign.js; do node --check "$f" || exit 1; done
           for f in install.sh "Install Brento.command" packaging/mac/postinstall; do sh -n "$f" || exit 1; done
 
   build-mac:
@@ -109,7 +109,7 @@ jobs:
         # Apple chips and Intel. xcode-27 is macOS 27, until GitHub offers it under its own name.
         os: [macos-15, macos-15-intel, macos-26, macos-26-intel, xcode-27]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -133,15 +133,12 @@ jobs:
         continue-on-error: true
         run: screencapture -x 1-installed-${{ matrix.os }}.png
       - name: The whole setup in a browser
-        timeout-minutes: 6
+        timeout-minutes: 12
         run: |
           python3 -m venv "$RUNNER_TEMP/walk"
           "$RUNNER_TEMP/walk/bin/pip" -q install selenium==4.51.0
           sudo safaridriver --enable || true
-          # Its automation cannot take over the Safari the installer has opened.
-          pkill -x Safari || true
-          sleep 5
-          "$RUNNER_TEMP/walk/bin/python" packaging/walk_setup.py safari pictures
+          "$RUNNER_TEMP/walk/bin/python" packaging/walk_setup.py safari,chrome pictures
       - name: Update by installing again
         run: |
           installer -pkg Brento-Mac.pkg -target CurrentUserHomeDirectory -verboseR
@@ -235,7 +232,7 @@ jobs:
         timeout-minutes: 6
         run: |
           python -m pip -q install selenium==4.51.0
-          python packaging/walk_setup.py edge pictures
+          python packaging/walk_setup.py edge,chrome pictures
       - name: Update by installing again
         run: |
           .\run-installer.ps1 update.log
@@ -269,7 +266,8 @@ jobs:
           if-no-files-found: ignore
 
   publish:
-    if: startsWith(github.ref, 'refs/tags/v')
+    # Only for a pushed tag. "Run workflow" never publishes, also not when a tag is picked there.
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     needs: [notes, test, try-mac, try-windows]
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -293,6 +291,8 @@ jobs:
           gh release create "$GITHUB_REF_NAME" Brento-Mac.pkg Brento-Windows.exe SHA256SUMS.txt \
             --repo "$GITHUB_REPOSITORY" --title "Brento $GITHUB_REF_NAME" --notes-file notes.md --verify-tag
       - name: The download links give exactly these files
+        # A private copy of this repository has no links that work without signing in.
+        if: github.event.repository.private == false
         run: |
           for f in Brento-Mac.pkg Brento-Windows.exe; do
             curl -fsSL --retry 6 --retry-delay 10 --retry-all-errors -o "got-$f" "https://github.com/$GITHUB_REPOSITORY/releases/latest/download/$f"

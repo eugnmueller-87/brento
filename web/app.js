@@ -2,8 +2,32 @@
 (function () {
   'use strict';
 
-  // Everything this page asks Brento for carries a header that a link, a redirect or a foreign page cannot send.
-  const fetch = (url, options) => window.fetch(url, Object.assign({}, options, { headers: Object.assign({ 'X-Leitstand': '1' }, (options || {}).headers) }));
+  // This browser's own word. It is kept here and never sent: every question to Brento is signed with it (sign.js). On a
+  // phone there is none, a paired phone carries a cookie instead.
+  let WORD = null;
+  function readWord() { try { const w = JSON.parse(localStorage.getItem(BrentoSign.KEY)); WORD = w && w.id && w.word ? w : null; } catch (e) { WORD = null; } }
+  readWord();
+  const fetch = (url, options) => {
+    const o = Object.assign({}, options), at = new URL(url, location.href);
+    const headers = Object.assign({ 'X-Leitstand': '1' }, o.headers);
+    if (WORD && at.pathname.startsWith('/api/')) headers['X-Brento-Sign'] = BrentoSign.header(WORD, (o.method || 'GET').toUpperCase(), at.pathname + at.search, location.host, o.body || '', Date.now());
+    return window.fetch(url, Object.assign(o, { headers }));
+  };
+  // The icon's ticket, or the key from another computer, traded for a word. The address is cleaned first.
+  async function enter() {
+    const q = new URLSearchParams(location.search), given = q.get('ticket') ? { ticket: q.get('ticket') } : q.get('key') ? { key: q.get('key') } : null;
+    if (!given) return;
+    history.replaceState(null, '', location.pathname + location.hash);
+    try {
+      if (WORD && (await fetch('/api/tools')).ok) return;
+      const r = await window.fetch('/api/enter', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Leitstand': '1' }, body: JSON.stringify(given) });
+      if (!r.ok) return;
+      WORD = await r.json();
+      try { localStorage.setItem(BrentoSign.KEY, JSON.stringify(WORD)); } catch (e) { /* then it holds for this window only */ }
+    } catch (e) { /* the page says what it cannot read */ }
+  }
+  // Another window of this browser was let in, or lost its word.
+  window.addEventListener('storage', (e) => { if (e.key === BrentoSign.KEY && e.newValue) location.reload(); });
   const $ = (s, r = document) => r.querySelector(s);
   const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
   const esc = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -257,7 +281,9 @@
   }
   async function loadTools(force) {
     try {
-      const text = await (await fetch('/api/tools')).text();
+      const res = await fetch('/api/tools');
+      if (!res.ok) return;
+      const text = await res.text();
       // Never under an open menu or an icon being dragged.
       if (!force && (text === toolsText || !$('#dock-menu').hidden || drag)) return;
       toolsText = text;
@@ -610,7 +636,9 @@
   /* Home is up to ten slides: what really needs you, then the next real to-dos. The server picks them. */
   let deckCards = [];
   // Sources that are on but could not be read. A calendar nobody connected has its own hint below the cards.
-  const unread = () => S.sources.filter((s) => s.state === 'unknown' && (s.id !== 'calendar' || S.calendarConnected));
+  // One that was read and only carries no date has no note.
+  const unread = () => S.sources.filter((s) => s.state === 'unknown' && s.note && (s.id !== 'calendar' || S.calendarConnected));
+  const lostNow = () => unread().filter((s) => s.note !== 'still loading');
   function quietCard() {
     const lost = unread();
     if (lost.length || S.vaultProblem) {
@@ -640,7 +668,7 @@
       + '<div class="deck-foot">' + (many ? '<div class="pips">' + cards.map((c, i) => '<button type="button" data-go="' + i + '" aria-label="Card ' + (i + 1) + '"></button>').join('') + '</div>' : '')
       // No key hints under the cards (owner, 08.11.2026: clutter). Only a broken calendar speaks up, because meetings would be missing.
       + (S.calendarConnected ? '' : '<div class="hints"><span><a href="' + (S.phone ? '#today' : '#setup/3') + '">Calendar not connected, so meetings are missing</a></span></div>')
-      + (S.focus.length && (unread().length || S.vaultProblem) ? '<div class="hints"><span><a href="#brain">N/A: ' + esc(unread().map((s) => s.label).join(', ') || S.vaultProblem) + '</a></span></div>' : '') + '</div>';
+      + (S.focus.length && (lostNow().length || S.vaultProblem) ? '<div class="hints"><span><a href="#brain">N/A: ' + esc(lostNow().map((s) => s.label).join(', ') || S.vaultProblem) + '</a></span></div>' : '') + '</div>';
     firstHome = false;
     bindDeck();
   }
@@ -801,6 +829,7 @@
   }
   function srcLine(id) {
     const s = S.sources.find((x) => x.id === id);
+    if (!s) return '';
     return '<p class="note"><span class="origin"><span class="dot ' + s.state + '"></span>' + esc(s.path) + ' · ' + (s.ageDays === null ? 'age unknown' : s.ageDays === 0 ? 'read today' : s.ageDays + ' days old') + (s.note ? ' · ' + esc(s.note) : '') + '</span></p>';
   }
   function pageWrap(html) {
@@ -843,7 +872,7 @@
     const [first, ...rest] = S.cards;
     const waiting = S.open.items.filter((m) => !m.mine);
     const dated = S.open.items.filter((m) => m.due).map((m) => ({ due: m.due, time: '', name: m.name, sub: m.mine ? 'yours' : 'waiting on ' + m.owner }))
-      .concat(S.events.map((e) => ({ due: e.date, time: e.time, name: e.title, sub: e.people > 1 ? 'with ' + (e.people - 1) + (e.people === 2 ? ' other' : ' others') : 'calendar', join: e.join || '' })))
+      .concat(S.events.map((e) => ({ due: e.date, time: e.time, name: e.title, sub: (e.zone ? 'time in ' + e.zone + ', ' : '') + (e.people > 1 ? 'with ' + (e.people - 1) + (e.people === 2 ? ' other' : ' others') : 'calendar'), join: e.join || '' })))
       .sort((a, b) => (a.due + a.time).localeCompare(b.due + b.time));
     let html = pageHead('Today', 'Fixed rules set this order: your own deadlines first, then what the morning brief names, then what has gone stale. Nothing here moves by itself.');
     const dates = '<aside class="panel"><h3>Dates<span class="pill">' + dated.length + '</span></h3>' + (dated.map((m) => '<div class="date-row"><time>' + weekdayOf(m.due) + ' ' + dayMonth(m.due) + (m.time ? '<br>' + esc(m.time) : '') + '</time><div>' + esc(m.name) + '<small>' + esc(m.sub) + '</small>'
@@ -1308,7 +1337,7 @@
     $$('[data-q]').forEach((b) => { b.onclick = () => submitAsk(b.dataset.q); });
     if (ask.draft) q.oninput();
     if (window.innerWidth > 760) q.focus();
-    if (!st) fetch('/api/ask/status').then((r) => r.json()).then((j) => { ask.status = j; if (route === 'ask') renderAsk(); }).catch(() => {});
+    if (!st || (!st.ready && Date.now() - ask.at > 15000)) fetch('/api/ask/status').then((r) => r.json()).then((j) => { ask.status = j; ask.at = Date.now(); if (route === 'ask') renderAsk(); }).catch(() => {});
   }
   async function submitAsk(text) {
     text = (text || '').trim();
@@ -1448,7 +1477,7 @@
       f.route ? '#' + f.route : (f.note ? noteHref(f.note) : (f.date ? '#day/' + f.date : ''))));
     const cal = S.sources.find((s) => s.id === 'calendar') || {};
     const quiet = !S.calendarConnected ? 'the calendar is not connected, so meetings are not checked'
-      : cal.state === 'unknown' ? 'N/A, the calendar could not be read'
+      : cal.state === 'unknown' ? (cal.note === 'still loading' ? 'the calendar is being read' : 'N/A, the calendar could not be read')
       : 'every one-off meeting in the next ' + sc.days + ' days has a card, task or note, and every HIGH card has a date';
     return '<h2 class="section-title">On track? <span>' + (sc.items.length ? sc.items.length + ' to look at: meetings in the next ' + sc.days + ' days, tasks and the board' : quiet) + '</span></h2>'
       + (sc.items.length ? '<div class="rows">' + rows.join('') + '</div>' : '');
@@ -1550,7 +1579,7 @@
         : '<p class="note"><a class="link-btn" href="#setup/3">Connect your calendar</a>: Google, Outlook or Apple iCloud, in four short steps. Repeating appointments are left out.</p>');
     const C = SETUP.claude;
     html += step('6', 'Ask box', C ? setupStatus(C.ready, C.ready ? 'Claude Code ready' + (C.plan ? ', ' + C.plan : '') : 'not ready') : '<span class="pill">off</span>',
-      'Questions about your notes, answered by the claude program on this computer under your own Claude login. Brento never sees or stores the login, and refuses to run on an API key, so it cannot cause a bill.',
+      'Questions about your notes, answered by the claude program on this computer under your own Claude login. Brento never sees or stores the login, and refuses to run on an API key. Questions count against your Claude plan, and what Claude reads for an answer goes to Claude.',
       C && !C.ready ? '<p class="note">' + esc(C.reason) + (/not installed/i.test(C.reason) ? '' : ' <a class="link-btn" href="#setup/6">Sign in to Claude</a>') + '</p>' : '');
     html += step('7', 'Tools for your dock', '', 'Pick the apps you use every day. They join the dock as their own windows. Remove one later with a right-click on it.',
       grouped(SETUP.catalog).map((g) => '<div class="setup-group">' + esc(g.name) + '</div><div class="setup-grid">' + g.items.map((t) => setupOpt('checkbox', 'su-tool', t.id, t.added, t.name, t.added ? 'In your dock' : t.url.replace(/^https?:\/\//, '').replace(/\/$/, ''), t.added)).join('') + '</div>').join(''));
@@ -1609,6 +1638,7 @@
         const j = await r.json();
         if (!r.ok) throw new Error(j.error);
         SETUP = j;
+        ask.status = null;
         toast('Saved.' + (j.added && j.added.length ? ' Added to the dock: ' + j.added.join(', ') + '.' : ''));
         stateText = '';
         await load();
@@ -1636,8 +1666,9 @@
     pageWrap('<div class="wz" id="wz"><section class="wz-card"><p class="wz-lead">Looking around this computer…</p></section></div>');
     fetch('/api/wizard').then(async (r) => { const j = await r.json(); if (!r.ok) throw new Error(j.error || 'HTTP ' + r.status); return j; }).then((d) => {
       // In the middle of the first setup nothing is saved yet, so what was typed and chosen stays.
-      const keep = !!WZ.data && WZ.data.needed && d.needed;
+      const keep = !!WZ.data && WZ.data.needed && d.needed && !WZ.over;
       WZ.data = d;
+      WZ.over = false;
       WZ.calOk = d.calendarConnected;
       WZ.slackOn = d.slackConnected;
       const T = d.team;
@@ -1648,14 +1679,17 @@
         WZ.other = !!d.profile.vault && !d.vaults.some((v) => v.path === d.profile.vault);
         const b = d.profile.board;
         WZ.board = b.owner && b.number ? Object.assign({ title: 'Board ' + b.number, lanesFound: true }, b) : null;
-        WZ.tools = null;
+        WZ.tools = WZ.sources = null;
         WZ.msg = '';
+        WZ.reached = 0;
+        WZ.askOn = !d.needed && !!(d.profile.sources.ask || {}).on;
         WZ.slack = Object.assign({ digest: '08:00', alerts: true, remind: 10 }, (T && T.slack) || {}, d.profile.slack && d.profile.slack.digest !== undefined && !d.needed ? d.profile.slack : {});
       }
       if (T && T.calendar) WZ.provider = T.calendar;
       WZ.teamTried = false;
-      // #setup/3 opens a given step.
-      WZ.step = clamp(Number(routeId) || 0, 0, WZ_STEPS.length - 1);
+      // #setup/3 opens a given step for someone who has finished the setup. Before that, no question is jumped over.
+      if (d.needed) WZ.step = clamp(routeId === null ? (keep ? WZ.step : 0) : Number(routeId) || 0, 0, WZ.reached);
+      else WZ.step = clamp(Number(routeId) || 0, 0, WZ_STEPS.length - 1);
       if (WZ.vault) vaultStats();
       paintWizard();
     }).catch((err) => { const box = $('#wz'); if (box) box.innerHTML = '<section class="wz-card"><p class="tools-error">' + esc(err.message) + '</p></section>'; });
@@ -1668,9 +1702,7 @@
     clearInterval(WZ.timer);
     WZ.msg = '';
     WZ.step = clamp(WZ.step + delta, 0, WZ_STEPS.length - 1);
-    // The address names the step, so a reload of the page keeps the place. Replacing it fires no route change.
-    routeId = WZ.step ? String(WZ.step) : null;
-    history.replaceState(null, '', '#setup' + (WZ.step ? '/' + WZ.step : ''));
+    WZ.reached = Math.max(WZ.reached || 0, WZ.step);
     paintWizard();
   }
   // While a sign-in runs, ask every few seconds whether it is done, so nobody has to press anything here.
@@ -1700,23 +1732,36 @@
       WZ.board = j;
     }).catch((err) => { WZ.msg = err.message; }).finally(() => { WZ.boardBusy = ''; paintWizard(); });
   }
-  // The same for the Claude sign-in. Once it is done, the Ask box is switched on, because the rest is already saved.
+  // The Ask box, only ever on the owner's click: what it reads for an answer goes to Claude.
+  function wzAskOn(d, sources) {
+    const src = JSON.parse(JSON.stringify(sources));
+    src.ask = { on: true };
+    return post('/api/setup', { profile: { sources: src } }).then((j) => {
+      WZ.askOn = !!(j.profile.sources.ask || {}).on;
+      WZ.sources = j.profile.sources;
+      ask.status = null;
+      stateText = '';
+      return load();
+    }).then(paintWizard).catch((err) => toast(err.message));
+  }
+  // The same polling for the Claude sign-in. It was started for the Ask box, so that is switched on once it is done, also
+  // when the owner has gone on to another page in the meantime.
   function wzPollClaude() {
-    clearInterval(WZ.timer);
-    WZ.timer = setInterval(() => {
-      if (route !== 'setup') { clearInterval(WZ.timer); return; }
+    clearInterval(WZ.claudeTimer);
+    const d = WZ.data, vault = WZ.vault, timer = setInterval(() => {
       fetch('/api/wizard/claude').then((r) => r.json()).then((c) => {
-        WZ.data.claude = c;
+        if (WZ.claudeTimer !== timer) return;
+        d.claude = c;
         const s = c.signin || {};
-        if (c.ready) {
-          clearInterval(WZ.timer);
-          WZ.msg = '';
-          const src = WZ.sources || WZ.data.profile.sources;
-          if (WZ.vault && src.ask) { src.ask.on = true; post('/api/setup', { profile: { sources: src } }).then(() => { stateText = ''; load(); }).catch((err) => toast(err.message)); }
-          paintWizard();
-        } else if (!s.running) { clearInterval(WZ.timer); WZ.msg = s.error || ''; paintWizard(); }
+        if (!c.ready && s.running) return;
+        clearInterval(timer);
+        WZ.claudeTimer = 0;
+        WZ.msg = c.ready ? '' : s.error || '';
+        if (c.ready && vault) wzAskOn(d, WZ.sources || d.profile.sources);
+        else paintWizard();
       }).catch(() => {});
     }, 4000);
+    WZ.claudeTimer = timer;
   }
   function wzOpen(action, waitText) {
     WZ.msg = waitText;
@@ -1753,8 +1798,8 @@
     return html;
   }
   // Said before the click: GitHub's own page asks for more than Brento uses, and in another program's name.
-  const WZ_GITHUB = '<p class="note">GitHub then asks you to authorize <b>GitHub CLI</b>. That is GitHub\'s own program, which Brento uses. It always asks for repositories, gists, organizations and projects, to read and to write. '
-    + 'Brento reads your boards and your list of repositories with it, and writes only when you click for it: a new board, or the lanes on one. You can take it back any time under <a href="https://github.com/settings/applications" target="_blank" rel="noopener noreferrer">github.com/settings/applications</a>.</p>';
+  const WZ_GITHUB = '<p class="note">GitHub then asks you to authorize <b>GitHub CLI</b>. That is GitHub\'s own program, which Brento uses. It always asks for your repositories and gists, to read and to write, and to see your organizations. Brento adds your project boards. '
+    + 'It reads your boards and your list of repositories, and writes only when you click for it: a new board, or the lanes on one. You can take it back any time under <a href="https://github.com/settings/applications" target="_blank" rel="noopener noreferrer">github.com/settings/applications</a>.</p>';
   function wzBoard() {
     const d = WZ.data, gh = d.gh;
     let html = '<h2>Your to-do board</h2><p class="wz-lead">Brento reads a free GitHub Project board with three lanes: HIGH, MID and LOW. A HIGH card with a date reaches your home screen in time.</p>';
@@ -1831,38 +1876,58 @@
     rows.push(WZ.calOk ? 'Calendar connected' : 'No calendar yet');
     rows.push(WZ.slackOn ? 'Slack connected' : 'No Slack');
     let html = '<h2>Brento is ready</h2><ul class="wz-sum">' + rows.map((r) => '<li>' + r + '</li>').join('') + '</ul>';
-    if (WZ.vault && !c.ready) {
-      html += '<div class="wz-extra"><b>Optional: the Ask box</b><p>Ask questions about your notes. It uses Claude Code on this computer with your own Claude login.</p>'
-        + (/not installed/i.test(c.reason || '') ? '<a class="btn" href="https://claude.com/claude-code" target="_blank" rel="noopener noreferrer">Get Claude Code</a>' : '<button class="btn" type="button" data-open="claude-login">Sign in to Claude</button>') + (WZ.msg ? '<p class="wz-wait">' + esc(WZ.msg) + '</p>' : '') + '</div>';
+    if (WZ.vault) {
+      html += '<div class="wz-extra"><b>Optional: the Ask box</b><p>Ask questions about your notes. Claude Code answers them on this computer, under your own Claude plan. What it reads for an answer goes to Claude.</p>'
+        + (c.ready ? (WZ.askOn ? wzOk('The Ask box is on.') : '<button class="btn" type="button" id="wz-ask">Switch it on</button>')
+          : /not installed/i.test(c.reason || '') ? '<a class="btn" href="https://claude.com/claude-code" target="_blank" rel="noopener noreferrer">Get Claude Code</a>'
+          : '<button class="btn" type="button" data-open="claude-login">Sign in to Claude and switch it on</button>') + (WZ.msg ? '<p class="wz-wait">' + esc(WZ.msg) + '</p>' : '') + '</div>';
     }
     if (WZ.board && WZ.board.ownerType === 'org' && !(d.team && d.team.board.owner)) {
       html += '<div class="wz-extra"><b>Set up your team in one go</b><p>Save this board, these apps and the Slack timing as team.json in the Brento folder. Commit and push it, and everyone who installs from your copy of the repo gets the same setup without choosing.</p>'
         + (WZ.teamSaved ? wzOk('Saved as team.json. Commit and push it to share.') : '<button class="btn" type="button" id="wz-team">Save as team setup</button>') + '</div>';
     }
-    if (d.platform === 'darwin') html += '<div class="wz-extra"><b>Brento on your Mac</b><p>Brento starts when you log in. To open it later, press Cmd and Space, type Brento and press Return. In Safari you can also choose File, then Add to Dock.</p></div>';
+    if (d.platform === 'darwin') html += '<div class="wz-extra"><b>Brento on your Mac</b><p>Brento starts when you log in. To open it later, press Cmd and Space, type Brento and press Return.</p></div>';
     if (d.platform === 'win32') html += '<div class="wz-extra"><b>Brento on your computer</b><p>To open Brento later, press the Windows key, type Brento and press Enter. Right-click the icon to pin it to the taskbar.</p></div>';
     html += '<div class="wz-extra"><b>Brento on your phone</b><p>iPhone or Android: Brain, then "Sources and setup", then Phone. It takes a six-digit code, nothing to install.</p></div>';
     return html + '<p class="note">Change anything later: Brain, then "Sources and setup".</p>';
   }
-  function wzSave() {
-    const d = WZ.data, old = d.profile.sources;
-    const claudeOk = !!(d.claude && d.claude.ready);
-    const sources = {};
+  function wzBoardProfile() {
+    const b = WZ.board;
+    return { owner: b.owner, ownerType: b.ownerType, number: b.number, statusField: b.statusField, areaField: b.areaField || '', dueField: b.dueField || '', doneField: b.doneField || '',
+      homeAreas: b.homeAreas || {}, me: WZ.data.gh.login || WZ.data.profile.board.me || '' };
+  }
+  function wzSources() {
+    const d = WZ.data, old = d.profile.sources, sources = {};
     d.sources.forEach((s) => { sources[s.id] = { on: !!(old[s.id] || {}).on }; if (s.path) sources[s.id].path = (old[s.id] || {}).path || s.path; });
-    sources.library.on = !!WZ.vault; sources.tasks.on = !!WZ.vault; sources.calendar.on = true; sources.board.on = !!WZ.board; sources.ask.on = !!WZ.vault && claudeOk;
-    const b = WZ.board || {};
-    const board = WZ.board ? { owner: b.owner, ownerType: b.ownerType, number: b.number, statusField: b.statusField, areaField: b.areaField || '', dueField: b.dueField || '', doneField: b.doneField || '',
-      homeAreas: b.homeAreas || {}, me: d.gh.login || '' } : undefined;
+    return sources;
+  }
+  // The end of the first setup.
+  function wzSave() {
+    const sources = wzSources();
+    sources.library.on = sources.tasks.on = !!WZ.vault; sources.calendar.on = true; sources.board.on = !!WZ.board; sources.ask.on = false;
     WZ.sources = sources;
-    const profile = { name: WZ.name, vault: WZ.vault, sources, tasks: d.profile.tasks, slack: WZ.slack };
-    if (board) profile.board = board;
+    const profile = { name: WZ.name, vault: WZ.vault, sources, tasks: WZ.data.profile.tasks, slack: WZ.slack };
+    if (WZ.board) profile.board = wzBoardProfile();
     return post('/api/setup', { profile, tools: Array.from(WZ.tools || []) });
+  }
+  // Someone who has finished the setup came for one page. Only that is saved, everything else stays as they left it.
+  function wzSaveOne(name) {
+    const p = WZ.data.profile, sources = wzSources(), profile = {};
+    if (name === 'welcome') profile.name = WZ.name;
+    if (name === 'notes' && WZ.vault !== p.vault) {
+      profile.vault = WZ.vault;
+      if (!p.vault || !WZ.vault) { sources.library.on = sources.tasks.on = !!WZ.vault; profile.sources = sources; }
+    }
+    if (name === 'board' && WZ.board) { profile.board = wzBoardProfile(); sources.board.on = true; profile.sources = sources; }
+    if (name === 'calendar' && WZ.calOk && !sources.calendar.on) { sources.calendar.on = true; profile.sources = sources; }
+    if (name === 'slack') profile.slack = WZ.slack;
+    return post('/api/setup', { profile, tools: name === 'tools' ? Array.from(WZ.tools || []) : [] });
   }
   function paintWizard() {
     const box = $('#wz');
     if (!box || route !== 'setup' || !WZ.data) return;
-    const name = WZ_STEPS[WZ.step];
-    const dots = name === 'done' ? '' : '<div class="wz-dots" aria-label="Step ' + (WZ.step + 1) + ' of 6">' + WZ_STEPS.slice(0, 6).map((s, i) => '<i class="' + (i < WZ.step ? 'done' : i === WZ.step ? 'on' : '') + '"></i>').join('') + '</div>';
+    const name = WZ_STEPS[WZ.step], one = !WZ.data.needed && !WZ.sources && name !== 'done';
+    const dots = name === 'done' || one ? '' : '<div class="wz-dots" aria-label="Step ' + (WZ.step + 1) + ' of 6">' + WZ_STEPS.slice(0, 6).map((s, i) => '<i class="' + (i < WZ.step ? 'done' : i === WZ.step ? 'on' : '') + '"></i>').join('') + '</div>';
     let body = '', next = 'Next', skip = false;
     if (name === 'welcome') {
       body = '<h2>Welcome to ' + (WZ.data.team && WZ.data.team.team ? esc(WZ.data.team.team) + '\'s Brento' : 'Brento') + '</h2><p class="wz-lead">One screen that tells you what needs you today: your tasks, your board and your meetings. Setup takes about two minutes. Brento runs on this computer and keeps its settings here.</p>'
@@ -1874,10 +1939,9 @@
     else if (name === 'slack') { body = wzSlack(); skip = !WZ.slackOn; }
     else if (name === 'tools') { body = wzTools(); next = 'Finish'; }
     else body = wzDone();
-    if (!WZ.data.needed && name !== 'done') body += '<p class="note"><button class="link-btn" type="button" id="wz-close">Close the setup</button></p>';
-    const nav = name === 'done' ? '<div class="wz-nav"><span></span><button class="btn primary" type="button" id="wz-home">Open Brento</button></div>'
-      : '<div class="wz-nav">' + (WZ.step ? '<button class="btn" type="button" id="wz-back">Back</button>' : '<span></span>') + '<span class="wz-right">'
-        + (skip ? '<button class="link-btn" type="button" id="wz-skip">Skip for now</button>' : '') + '<button class="btn primary" type="button" id="wz-next">' + next + '</button></span></div><p class="tools-error" id="wz-error" role="alert"></p>';
+    const nav = one ? '<p class="tools-error" id="wz-error" role="alert"></p><div class="wz-nav"><button class="btn" type="button" id="wz-close">Cancel</button><button class="btn primary" type="button" id="wz-one">Done</button></div>' : name === 'done' ? '<div class="wz-nav"><span></span><button class="btn primary" type="button" id="wz-home">Open Brento</button></div>'
+      : '<p class="tools-error" id="wz-error" role="alert"></p><div class="wz-nav">' + (WZ.step ? '<button class="btn" type="button" id="wz-back">Back</button>' : '<span></span>') + '<span class="wz-right">'
+        + (skip ? '<button class="link-btn" type="button" id="wz-skip">Skip for now</button>' : '') + '<button class="btn primary" type="button" id="wz-next">' + next + '</button></span></div>';
     box.innerHTML = '<section class="wz-card">' + dots + body + nav + '</section>';
     bindWizard(name);
   }
@@ -1885,8 +1949,15 @@
     const on = (sel, fn) => { const el = $(sel); if (el) el.onclick = fn; };
     on('#wz-back', () => wzGo(-1));
     on('#wz-skip', () => wzGo(1));
-    on('#wz-home', () => { WZ.data = null; stateText = ''; load(); navigate('home'); });
-    on('#wz-close', () => { WZ.data = null; stateText = ''; load(); navigate('home'); });
+    on('#wz-home', () => { WZ.over = true; stateText = ''; load(); navigate('home'); });
+    on('#wz-close', () => { WZ.over = true; stateText = ''; load(); navigate('home'); });
+    on('#wz-ask', () => wzAskOn(WZ.data, WZ.sources || WZ.data.profile.sources));
+    on('#wz-one', async () => {
+      if (name === 'notes' && WZ.other) { const p = $('#wz-path'); WZ.vault = p ? p.value.trim() : ''; }
+      const b = $('#wz-one'); b.disabled = true;
+      try { await wzSaveOne(name); WZ.over = true; stateText = ''; await load(); loadTools(true); navigate('home'); }
+      catch (err) { $('#wz-error').textContent = err.message; b.disabled = false; }
+    });
     on('#wz-team', () => post('/api/team', { team: WZ.board.owner, tools: Array.from(WZ.tools || []), calendar: WZ.calOk ? WZ.provider : '' })
       .then(() => { WZ.teamSaved = true; paintWizard(); }).catch((err) => toast(err.message)));
     $$('#wz [data-open]').forEach((b) => { b.onclick = () => wzOpen(b.dataset.open, b.dataset.open === 'gh-install' ? 'Downloading the GitHub program from github.com. This page moves on by itself when it is done.'
@@ -1946,6 +2017,8 @@
   }
   function renderRoute() {
     deckApi = null;
+    // One question per page: the dock would only lead away from it, and on a small window it lies over the buttons.
+    document.documentElement.classList.toggle('in-setup', route === 'setup' && !S.phone);
     (RENDER[route] || renderHome)();
     $('#view').setAttribute('aria-label', (ROUTES[routeIndex(route)] || { label: route === 'day' ? 'Day' : '' }).label);
   }
@@ -2010,15 +2083,25 @@
   }
   window.addEventListener('hashchange', onRoute);
 
+  /* Not let in: the frame without anything in it, and the way in. */
+  function showLocked() {
+    document.documentElement.classList.add('locked');
+    document.title = 'Brento';
+    $('#view').innerHTML = '<div class="page"><div class="wz"><section class="wz-card"><h2>Open Brento with its icon</h2>'
+      + '<p class="wz-lead">Brento opens only for the person it belongs to, and this window has not been let in.</p>'
+      + '<p class="wz-lead">On Windows press the <b>Windows key</b>, on a Mac <b>Cmd</b> and <b>Space</b>. Type <b>Brento</b> and press <b>Enter</b>. Brento opens in a window of its own. You can close this one.</p></section></div></div>';
+  }
+
   /* Data */
   let webVersion = null;
   async function load() {
     try {
       const res = await fetch('/api/state');
-      // This browser is no longer let in. The page that comes back says how to get in again.
+      // A phone that is no longer paired: the page that comes back asks for the code.
       if (res.status === 401) { location.reload(); return; }
       if (!res.ok) throw new Error('HTTP ' + res.status);
       const text = await res.text();
+      if (JSON.parse(text).locked) { showLocked(); return; }
       const now = new Date();
       $('#refresh').title = 'Refresh now (R). Last read ' + String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
       if (text === stateText) return;
@@ -2076,10 +2159,12 @@
   setInterval(tickClock, 5000);
   renderTop();
   renderDock();
-  loadTools();
-  load();
-  setInterval(() => { load(); loadTools(); }, 60000);
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) { load(); loadTools(); } });
+  enter().then(() => {
+    loadTools();
+    load();
+    setInterval(() => { load(); loadTools(); }, 60000);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) { load(); loadTools(); } });
+  });
   let resizeAt = 0;
   window.addEventListener('resize', () => {
     clearTimeout(resizeAt);

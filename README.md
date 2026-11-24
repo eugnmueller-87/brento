@@ -34,8 +34,9 @@ the file yourself ([Apple's own description](https://support.apple.com/guide/mac
 
 1. Open **Brento-Mac.pkg**. macOS says *"Brento-Mac.pkg" Not Opened*. Click **Done**, not the blue *Move to Trash*.
 2. Open **System Settings**, then **Privacy & Security**, and scroll down to *Security*. Next to *"Brento-Mac.pkg" was
-   blocked to protect your Mac* click **Open Anyway**, and confirm with the password you log in with. That is macOS
-   asking, not Brento. The button is there for about an hour.
+   blocked to protect your Mac* click **Open Anyway**. The warning comes back: click **Open Anyway** again, and confirm
+   with the password of an administrator of this Mac (yours, if the Mac is yours). That is macOS asking, not Brento. The
+   button is there for about an hour. On macOS 13 and 14 it is shorter: hold **Control**, click the file, **Open**, **Open**.
 3. The installer opens: **Continue**, **Install**, **Close**. Should it ask for an administrator, click **Change Install
    Location** and choose **Install for me only**.
 
@@ -89,7 +90,7 @@ One question per screen, most answers already filled in, a button for everything
 |---|---|
 | Welcome | Check your first name (taken from GitHub or git) |
 | Notes | Your Obsidian vault is already chosen. Brento shows how many notes and dated tasks it found |
-| Board | *Sign in to GitHub* shows a one-time code and a button that copies it and opens GitHub. GitHub asks you to authorize *GitHub CLI*, its own program, with access to repositories, gists, organizations and projects: that program always asks for all of it. Then click your board, or *Create a new board for me* |
+| Board | *Sign in to GitHub* shows a one-time code and a button that copies it and opens GitHub. GitHub asks you to authorize *GitHub CLI*, its own program: it always asks for your repositories and gists (to read and write) and to see your organizations, and Brento adds your project boards. Then click your board, or *Create a new board for me* |
 | Calendar | Pick Google, Outlook or Apple, follow four short steps, paste the link. Brento checks it at once |
 | Slack (optional) | *Create the Brento app* opens Slack with everything filled in. Add a webhook, paste it, a test message arrives |
 | Apps | The apps for your dock, already ticked from what you connected |
@@ -119,7 +120,7 @@ The board page shows everyone's cards with their names. A template for the team 
 | Obsidian tasks with a date | `- [ ] Send the offer 📅 2026-11-30` (Tasks plugin), `[due:: 2026-11-30]` (Dataview) or `@due(2026-11-30)` |
 | GitHub Project board | Lanes HIGH, MID and LOW; a person's or an organization's board; your own field names |
 | Calendar | An iCal link from Google, Outlook or Apple; meetings with others reach Home with a *Join call* button. Repeating appointments are left out |
-| Ask box | Questions about your notes, answered by Claude Code on your computer under your own Claude login. It can read your notes folder and nothing else. The privacy list does not cover it |
+| Ask box | Questions about your notes, answered by Claude Code on your computer under your own Claude plan. Off until you switch it on. It can read your notes folder and nothing else. The privacy list does not cover it |
 
 **On track?** on the Today page checks the next two weeks: a meeting nobody prepared for, two meetings at the same
 time, a task or card whose date has passed, an urgent card without a date.
@@ -138,7 +139,7 @@ time, a task or card whose date has passed, an urgent card without a date.
 - **Silence is not success.** A source that cannot be read shows *N/A*, never an empty, calm screen.
 - **The code decides what comes first, not a model.** Every card on Home says why it is there and how old its source is.
 - **Private stays private.** An optional privacy list keeps matching rows off the screen and out of Slack.
-- **A phone only looks.** It pairs with a code that lives ten minutes and dies after five wrong tries, and it can
+- **A phone looks and asks.** It pairs with a code that lives ten minutes and dies after five wrong tries, and it can
   never change the setup or start a program on the computer.
 
 ## Use it as a blueprint
@@ -151,9 +152,10 @@ Run the tests with `python -m unittest discover -s tests`.
 ## About the Ask box and Claude
 
 The Ask box starts the unmodified `claude` program on your computer. You sign in to it yourself, through Anthropic's
-own sign-in; Brento never sees, stores or passes on that login, and it refuses to run on an API key, so it cannot
-cause a bill. It starts it so that only your notes folder can be read, and settings or hooks that lie in that folder
-do not count: a shared vault cannot start a program on your computer. Anthropic's terms
+own sign-in; Brento never sees, stores or passes on that login. It refuses to run on an API key, so questions count
+against your Claude plan (extra usage costs money only if you have switched that on at Anthropic). It starts it so that
+only your notes folder can be read, and no settings files or hooks count: a shared vault cannot start a program on your
+computer. Anthropic's terms
 ([legal and compliance](https://code.claude.com/docs/en/legal-and-compliance), read 23.11.2026) do not prevent "an
 end user from signing in to the unmodified Claude Code binary with their own Claude subscription". They do not
 name a local app that starts `claude -p` either, so if you plan to offer Brento commercially, ask Anthropic first.
@@ -165,7 +167,7 @@ Version 0.2.0, see [CHANGELOG.md](CHANGELOG.md). Brento grew out of a dashboard 
 Windows. Before a version is published, GitHub's computers install it, open it, go through the whole setup in a
 browser, update it and remove it: macOS 15 and 26 (Apple chip and Intel), macOS 27, Windows 11 (on Arm) and Windows
 Server 2022 and 2025. What no automatic test covers: the password question of macOS after *Open Anyway*, the warning of
-SmartScreen, and the pairing of a real phone. If something fails, please open an issue.
+SmartScreen, macOS 13 and 14, and the pairing of a real phone. If something fails, please open an issue.
 
 ## Credits and license
 

@@ -30,7 +30,7 @@ INET = re.compile(r"\binet (?:addr:)?(\d+\.\d+\.\d+\.\d+)")
 # Before pairing, a phone gets the pairing page and the icons for its home screen, nothing else.
 OPEN_PATHS = {"/icon.svg", "/apple-touch-icon.png", "/icon-512.png", "/manifest.webmanifest"}
 # After pairing: the page and what it reads. Anything else stays on the computer.
-READ_PATHS = {"/", "/app.js", "/art.js", "/style.css", "/manifest.webmanifest", "/icon.svg", "/apple-touch-icon.png",
+READ_PATHS = {"/", "/app.js", "/art.js", "/sign.js", "/style.css", "/manifest.webmanifest", "/icon.svg", "/apple-touch-icon.png",
               "/icon-512.png", "/api/state", "/api/tools", "/api/ask/status"}
 WRITE_PATHS = {"/api/ask", "/api/refresh", "/api/tools"}
 

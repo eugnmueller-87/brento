@@ -56,6 +56,13 @@ JOIN_LINK = re.compile(r"https://(?:teams\.microsoft\.com/(?:l/meetup-join|meet)
                        r"|[\w.-]*zoom\.us/(?:j|my|w)/|[\w.-]*webex\.com/)[^\s<>\"'\\]+", re.I)
 
 
+# Of these, the ones that are a meeting, not a webinar or a recording.
+CALL_LINK = re.compile(r"^https://(?:teams\.microsoft\.com/|teams\.live\.com/|meet\.google\.com/|[\w.-]*zoom\.us/(?:j|my)/"
+                       r"|[\w.-]*webex\.com/(?:meet|join|[\w.-]+/j\.php))", re.I)
+# A line's name ends at the first colon that is not inside quotes. Outlook writes TZID="tzone://Microsoft/Utc".
+ICS_LINE = re.compile(r'^((?:[^":]|"[^"]*")*):(.*)$')
+
+
 def _join(*texts):
     for text in texts:
         found = JOIN_LINK.search(_text(text))
@@ -92,13 +99,16 @@ def _start(params, value):
 def parse_ics(text, today, days=21):
     """One-off events from today on. Series are left out on purpose: a recurring slot is routine."""
     unfolded = re.sub(r"\r?\n[ \t]", "", text)
+    # Outlook's link names no guests at all. Only in such a calendar does the link to a call stand for them.
+    guests = re.search(r"^ATTENDEE[;:]", unfolded, re.M) is not None
     events = []
     for block in re.findall(r"BEGIN:VEVENT(.*?)END:VEVENT", unfolded, re.S):
         fields, people, conference, meet = {}, 0, False, ""
         for line in block.splitlines():
-            name, sep, value = line.partition(":")
-            if not sep:
+            found = ICS_LINE.match(line)
+            if not found:
                 continue
+            name, value = found.groups()
             key, _, params = name.partition(";")
             key = key.upper()
             if key == "ATTENDEE":
@@ -120,9 +130,10 @@ def parse_ics(text, today, days=21):
         where = _text(fields.get("LOCATION", ("", ""))[1])
         if zone:
             where = "%s is the time in %s. %s" % (clock, zone, where)
-        events.append({"title": _text(fields["SUMMARY"][1]), "date": day.isoformat(), "time": clock,
-                       "where": where.strip(), "people": people, "conference": conference,
-                       "join": _join(meet, *(fields.get(k, ("", ""))[1] for k in ("LOCATION", "URL", "DESCRIPTION")))})
+        join = _join(meet, *(fields.get(k, ("", ""))[1] for k in ("LOCATION", "URL", "DESCRIPTION")))
+        events.append({"title": _text(fields["SUMMARY"][1]), "date": day.isoformat(), "time": clock, "zone": zone,
+                       "where": where.strip(), "people": people, "conference": conference, "join": join,
+                       "call": not guests and bool(CALL_LINK.match(join))})
     events.sort(key=lambda e: (e["date"], e["time"]))
     return events
 

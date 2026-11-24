@@ -1,10 +1,11 @@
 """Goes through the whole setup in a real browser, the way a person does who skips everything, and checks where it ends.
 
-    python packaging/walk_setup.py safari pictures      (or edge, or chrome)
+    python packaging/walk_setup.py safari,chrome pictures      the first browser that can be driven, of safari, edge, chrome
 
 The release workflow runs this against the Brento the installer has just started. It needs the package selenium, which
 nothing else here does. Exit code 0 is good.
 """
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -12,8 +13,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import address  # noqa: E402
 from selenium import webdriver  # noqa: E402
+from selenium.common.exceptions import WebDriverException  # noqa: E402
 
-PAGES = ["Welcome to Brento", "Your notes", "Your to-do board", "Your calendar", "Slack", "Your apps", "Brento is ready"]
+PAGES = ["Welcome to ", "Your notes", "Your to-do board", "Your calendar", "Slack", "Your apps", "Brento is ready"]
 NAME = "Test Person"
 HEADING = "const h = document.querySelector('#wz h2'); return h ? h.textContent : '';"
 FAILED = []
@@ -44,7 +46,7 @@ def walk(browser, pictures):
 
     browser.set_window_size(1100, 820)
     browser.get(address.page())
-    check("Open Brento with its icon" in browser.page_source, "a browser that was not let in sees a locked page")
+    check(until(lambda: "Open Brento with its icon" in browser.page_source, 20), "a browser that was not let in sees a locked page")
     browser.save_screenshot(str(pictures / "setup-0-locked.png"))
     browser.get(address.entrance())
     check(until(lambda: browser.current_url.split("#")[0] == address.page(), 20), "the ticket is gone from the address: %s" % browser.current_url)
@@ -57,8 +59,13 @@ def walk(browser, pictures):
         if page == PAGES[0]:
             browser.execute_script("const i = document.querySelector('#wz-name'); i.value = arguments[0]; i.dispatchEvent(new Event('input'));", NAME)
         if page == "Your calendar":
-            # Away for a moment to copy the link, and back: neither the page nor what was typed may be gone.
-            browser.execute_script("document.querySelector('#wz-cal').value = 'half typed'; document.dispatchEvent(new Event('visibilitychange'));")
+            # Away for a moment to copy the link, and back, while something else has changed: neither the page nor what
+            # was typed may be gone.
+            browser.execute_script("""
+                const real = window.fetch;
+                window.fetch = (url, options) => real(url, options).then(async (r) => String(url).includes('/api/state')
+                  ? new Response(JSON.stringify(Object.assign(await r.json(), { walk: Math.random() })), { status: 200 }) : r);
+                document.querySelector('#wz-cal').value = 'half typed'; document.dispatchEvent(new Event('visibilitychange'));""")
             time.sleep(4)
             kept = browser.execute_script("const i = document.querySelector('#wz-cal'); return i ? i.value : '';")
             check(heading() == page and kept == "half typed", "coming back to the setup keeps the page and what was typed")
@@ -68,19 +75,41 @@ def walk(browser, pictures):
     check(heading() == PAGES[-1], "the last page stays")
     check(click("#wz-home"), "there is a button that opens Brento")
     check(until(lambda: browser.execute_script("return location.hash") == "#home", 10), "it leads to Home")
+    check(not browser.execute_script("return window.brentoErrors"), "no script failed")
     browser.refresh()
     time.sleep(4)
     check(browser.execute_script("return location.hash") in ("", "#home"), "after a reload it is still Home")
+    browser.get(address.page())
+    check(until(lambda: browser.title.endswith("Brento") and "Open Brento with its icon" not in browser.page_source, 10)
+          and browser.execute_script("return !!document.querySelector('#deck')"), "the plain address opens too: %r" % browser.title)
     browser.save_screenshot(str(pictures / "home.png"))
-    check(not browser.execute_script("return window.brentoErrors || []"), "no script failed")
     _, view, _ = address.ask("api/setup", address.port(), address.key(), timeout=90)
     check(view.get("needed") is False and view["profile"]["name"] == NAME, "the answers are saved")
+
+
+def drive(names):
+    """A browser that can be driven. Safari's automation needs a few tries on a slow computer, and it cannot take over a
+    Safari that is already open."""
+    kinds = {"safari": webdriver.Safari, "edge": webdriver.Edge, "chrome": webdriver.Chrome}
+    for name in names:
+        for _ in range(3):
+            if name == "safari":
+                for program in ("Safari", "safaridriver"):
+                    subprocess.run(["pkill", "-x", program], check=False)
+                time.sleep(5)
+            try:
+                browser = kinds[name]()
+                print("ok    driving %s %s" % (name, browser.capabilities.get("browserVersion", "")), flush=True)
+                return browser
+            except WebDriverException as exc:
+                print("      %s could not be driven: %s" % (name, str(exc).strip().splitlines()[0][:160]), flush=True)
+    raise SystemExit("No browser could be driven.")
 
 
 def main():
     pictures = Path(sys.argv[2])
     pictures.mkdir(parents=True, exist_ok=True)
-    browser = {"safari": webdriver.Safari, "edge": webdriver.Edge, "chrome": webdriver.Chrome}[sys.argv[1]]()
+    browser = drive(sys.argv[1].split(","))
     try:
         walk(browser, pictures)
     finally:

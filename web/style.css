@@ -156,6 +156,7 @@ kbd { font: 600 11px/1 var(--text); padding: 3px 6px; border-radius: 6px; backgr
 .hints { display: flex; gap: 12px; align-items: center; }
 
 /* Dock */
+:root.in-setup #dock, :root.locked #dock, :root.locked .strip, :root.locked .top-right, :root.locked #crumb, :root.locked #back { display: none; }
 #dock { position: fixed; z-index: 50; left: 50%; bottom: max(10px, env(safe-area-inset-bottom)); transform: translateX(-50%); display: flex; align-items: flex-end; gap: 6px; padding: 8px 11px; border-radius: 22px; background: rgba(18, 22, 31, .78); border: 1px solid var(--line-2); box-shadow: 0 24px 70px rgba(0, 0, 0, .55), inset 0 1px 0 rgba(255, 255, 255, .06); backdrop-filter: blur(26px) saturate(1.3); -webkit-backdrop-filter: blur(26px) saturate(1.3); }
 .dock-item { position: relative; flex: none; width: 46px; height: 46px; display: grid; place-items: center; padding: 0; border: 1px solid var(--line); border-radius: 13px; background: var(--panel-2); color: var(--tone, var(--ink)); transform: translateY(calc((var(--s, 1) - 1) * -24px)) scale(var(--s, 1)); transform-origin: 50% 100%; margin-inline: calc((var(--s, 1) - 1) * 16px); will-change: transform; }
 .dock-item svg { width: 21px; height: 21px; }
@@ -543,8 +544,9 @@ a.chip { text-decoration: none; }
   .foot .why { display: block; width: 100%; }
   .card-actions { left: 20px; right: 20px; bottom: 16px; }
   .open { flex: 1; justify-content: center; padding-inline: 10px; }
-  .deck-btn, .hints { display: none; }
-  .deck-foot { margin-top: 4px; margin-bottom: 70px; height: 14px; }
+  .deck-btn { display: none; }
+  /* The only words here are about what is missing, and they matter on a phone as well. */
+  .deck-foot { margin-top: 4px; margin-bottom: 70px; height: auto; min-height: 14px; flex-wrap: wrap; gap: 6px 14px; }
   #dock { left: 8px; right: 8px; transform: none; justify-content: space-between; gap: 2px; padding: 7px; border-radius: 18px; }
   .dock-item { width: 40px; height: 40px; border-radius: 11px; }
   .dock-item svg { width: 19px; height: 19px; }
@@ -594,7 +596,8 @@ a.chip { text-decoration: none; }
 .setup-group { margin: 12px 0 6px; font: 600 11px/1.4 var(--text); color: var(--dim); text-transform: uppercase; letter-spacing: .06em; }
 
 /* The first-start wizard: one card, one question, big targets. */
-.wz { display: grid; justify-items: center; padding-block: 3vh 120px; }
+.wz { display: grid; justify-items: center; padding-block: 3vh 0; }
+:root.in-setup .page { padding-bottom: 28px; }
 .wz-card { width: min(760px, 100%); display: grid; gap: 14px; padding: 28px 30px; border-radius: 20px; background: var(--panel); border: 1px solid var(--line-2); }
 .wz-card h2 { display: flex; align-items: center; gap: 10px; font: 640 clamp(22px, 2vw, 28px)/1.2 var(--display); letter-spacing: -.02em; }
 .wz-lead { color: var(--muted); font-size: 15px; line-height: 1.55; }
@@ -631,5 +634,7 @@ a.chip { text-decoration: none; }
 .wz-sum { display: grid; gap: 6px; padding-left: 20px; }
 .wz-extra { display: grid; gap: 8px; padding: 14px 16px; border-radius: 13px; background: var(--panel-2); border: 1px solid var(--line); }
 .wz-extra p { color: var(--muted); }
-.wz-nav { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 6px; }
+/* The way on stays in sight, also on a small window where the page is longer than the screen. */
+.wz-nav { position: sticky; bottom: -28px; z-index: 2; display: flex; justify-content: space-between; align-items: center; gap: 10px;
+  margin: 2px -30px -28px; padding: 14px 30px 26px; border-radius: 0 0 20px 20px; background: linear-gradient(to bottom, transparent, var(--panel) 12px); }
 .wz-right { display: flex; align-items: center; gap: 14px; }

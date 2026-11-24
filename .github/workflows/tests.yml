@@ -23,7 +23,7 @@ jobs:
         run: python -m unittest discover -s tests
       - name: Page and shell scripts parse
         run: |
-          for f in web/app.js web/art.js; do node --check "$f" || exit 1; done
+          for f in web/app.js web/art.js web/sign.js; do node --check "$f" || exit 1; done
           sh -n install.sh
           sh -n "Install Brento.command"
           sh -n packaging/mac/postinstall

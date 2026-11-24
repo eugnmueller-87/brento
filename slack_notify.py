@@ -48,13 +48,14 @@ def link(url, label):
 
 
 def event_matters(event):
-    return event.get("people", 0) >= 2 or event.get("conference") or event.get("join") or "!" in event.get("title", "")
+    return event.get("people", 0) >= 2 or event.get("conference") or event.get("call") or "!" in event.get("title", "")
 
 
 def unread(state, allowed):
-    """The sources a summary stands on that could not be read. One the owner never connected does not count."""
+    """The sources a summary stands on that could not be read. One the owner never connected does not count, and one
+    that was read but carries no date has no note."""
     return [s["label"] for s in state.get("sources", []) if s["id"] in allowed and s.get("state") == "unknown"
-            and s.get("note") != "not connected yet"]
+            and s.get("note") and s["note"] != "not connected yet"]
 
 
 def plan(state, cfg, memory, now, name=""):
@@ -99,7 +100,8 @@ def plan(state, cfg, memory, now, name=""):
     reminded = list(memory.get("reminded") or [])
     if remind and "calendar" in allowed:
         for event in state.get("events", []):
-            if event.get("date") != today or not event.get("time") or not event_matters(event):
+            # A time in a zone Brento does not know is not a time to ring at.
+            if event.get("date") != today or not event.get("time") or event.get("zone") or not event_matters(event):
                 continue
             start = datetime.combine(now.date(), datetime.strptime(event["time"], "%H:%M").time())
             key = card_key("%s %s %s" % (event["date"], event["time"], event["title"]))

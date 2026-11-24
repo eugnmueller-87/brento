@@ -267,6 +267,18 @@ def fetch_remote(vault):
     return out.returncode == 0
 
 
+# How old the last good read of a calendar or a board may be. They are read again within minutes, so one this old has
+# stopped answering or has not been read yet since the computer woke up.
+LOST_AFTER = 3600
+
+
+def lost(fetched, error):
+    """'' while the last read is recent, else why nothing may be concluded from it."""
+    if time.time() - fetched <= LOST_AFTER:
+        return ""
+    return "%s, last read %s" % (error, datetime.fromtimestamp(fetched).strftime("%d.%m. %H:%M")) if error else "still loading"
+
+
 def source(sid, label, rel, as_of, max_age, today, note=""):
     if as_of is None:
         state, age = "unknown", None
@@ -467,6 +479,8 @@ class TaskIndex:
     def __init__(self, vault, ttl=60):
         self.vault, self.ttl = Path(vault), ttl
         self.files, self.walked, self.found = {}, 0.0, []
+        # Notes that could not be opened on the last round, for example ones a cloud folder has not brought here yet.
+        self.unread = 0
         self.lock = threading.Lock()
 
     def scan(self, today=None):
@@ -475,7 +489,7 @@ class TaskIndex:
                 return self.found
             # Raises when the folder is gone or locked, so the caller says N/A and never "no tasks".
             os.listdir(str(self.vault))
-            seen, out = {}, []
+            seen, out, unread = {}, [], 0
             for folder, dirs, files in os.walk(self.vault):
                 dirs[:] = [d for d in dirs if not skipped(d) and not PRIVATE.search(d)]
                 for name in files:
@@ -494,7 +508,13 @@ class TaskIndex:
                             try:
                                 text = full.read_text(encoding="utf-8", errors="replace")
                             except OSError:
-                                text = ""
+                                # Tried again on the next round. What was known about it stays until then.
+                                unread += 1
+                                for n, line in hit[1] if hit else ():
+                                    out.append((rel, n, line))
+                                if hit:
+                                    seen[rel] = hit
+                                continue
                             # Cheap first test: a file without a checkbox has no task.
                             if "[ ]" in text or "[/]" in text:
                                 lines = [(n, line) for n, line in enumerate(text.splitlines(), 1)
@@ -503,7 +523,7 @@ class TaskIndex:
                     seen[rel] = hit
                     for n, line in hit[1]:
                         out.append((rel, n, line))
-            self.files, self.walked, self.found = seen, time.time(), out
+            self.files, self.walked, self.found, self.unread = seen, time.time(), out, unread
             return out
 
 
@@ -528,7 +548,8 @@ def read_tasks(index, today):
         task["daysLeft"] = (iso_date(task["due"]) - today).days
         items.append(task)
     items.sort(key=lambda t: (t["due"], t["title"].lower()))
-    return {"items": items, "hidden": hidden}, source("tasks", "Obsidian tasks", "Vault checkboxes", today, 1, today)
+    note = ("%d note%s could not be read" % (index.unread, "" if index.unread == 1 else "s")) if index.unread else ""
+    return {"items": items, "hidden": hidden}, source("tasks", "Obsidian tasks", "Vault checkboxes", None if note else today, 1, today, note)
 
 
 class Board:
@@ -811,7 +832,8 @@ def read_board(board, today, rules=None):
     out = {"items": items, "archived": archived, "counts": counts,
            "bereiche": sorted({i["bereich"] for i in items + archived}),
            "passed": sum(1 for i in items if i["passed"]), "hidden": hidden, "error": error, "aging": aging}
-    return out, source("board", "Board", rel, date.fromtimestamp(fetched), 1, today, error)
+    gone = lost(fetched, error)
+    return out, source("board", "Board", rel, None if gone else date.fromtimestamp(fetched), 1, today, gone or error)
 
 
 FINISHED = ("Done", "Old", "Archive")
@@ -1038,20 +1060,21 @@ def build_cards(data, sources_by_id):
 
 
 def read_calendar(feed, today):
-    rel = "Google Calendar"
+    rel = "Your calendar's link"
     if feed is None or not feed.connected():
         return [], 0, source("calendar", "Calendar", rel, None, 1, today, "not connected yet")
     events, fetched, error = feed.snapshot(today, AGENDA_DAYS)
     if fetched is None:
         return [], 0, source("calendar", "Calendar", rel, None, 1, today, error or "still loading")
     kept = [e for e in events if not PRIVATE.search(e["title"] + " " + e.get("where", ""))]
-    return kept, len(events) - len(kept), source("calendar", "Calendar", rel, date.fromtimestamp(fetched), 1, today, error)
+    gone = lost(fetched, error)
+    return kept, len(events) - len(kept), source("calendar", "Calendar", rel, None if gone else date.fromtimestamp(fetched), 1, today, gone or error)
 
 
 def event_matters(event):
     """Someone else is expecting you, or you marked it. A dentist slot or a weekly job is routine. Outlook's link names
-    no guests, so there the join link of the call is what tells."""
-    return (event["people"] >= 2 or event["conference"] or bool(event.get("join")) or "!" in event["title"]
+    no guests, so there the link to a call is what tells."""
+    return (event["people"] >= 2 or event["conference"] or bool(event.get("call")) or "!" in event["title"]
             or bool(MUST_PREPARE.search(event["title"])))
 
 
@@ -1135,7 +1158,8 @@ def build_alerts(data, cards, events, titles, srcs, today):
             alert(days, "event-%s-%s" % (event["date"], event["title"]), "Prepare",
                   "%s %s" % (weekday_label(event["date"]), event["time"]) if event["time"] else weekday_label(event["date"]),
                   event["title"], event["where"] or ("With %d other%s" % (people, "" if people == 1 else "s") if people > 0 else ""),
-                  ("%s, and other people are expecting you." % in_days(days).capitalize()) if people > 0 or event["conference"] or event.get("join")
+                  ("%s, and other people are expecting you." % in_days(days).capitalize()) if people > 0 or event["conference"]
+                  else ("%s, with a link to a call." % in_days(days).capitalize()) if event.get("call")
                   else "%s. You marked this as important." % in_days(days).capitalize(), srcs["calendar"], note=note,
                   join=event.get("join", ""))
 
@@ -1359,7 +1383,8 @@ def build_schedule(data, events, titles, today):
             continue
         prep = day - timedelta(days=1) if days > 1 else day
         found.append({"kind": "prep", "date": event["date"], "time": event["time"], "title": event["title"],
-                      "why": "Other people expect you %s, and no card, task or note names it." % in_days(days),
+                      "why": ("Other people expect you %s, and no card, task or note names it." if event["people"] >= 2 or event["conference"]
+                              else "This is %s, and no card, task or note names it.") % in_days(days),
                       "suggest": {"title": "Prepare: %s" % event["title"], "due": prep.isoformat()}})
     for (day, clock), names in sorted(starts.items()):
         if len(names) > 1:

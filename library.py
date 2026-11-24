@@ -73,8 +73,12 @@ def drop_private_lines(body):
 
 
 class Renderer:
-    def __init__(self, find_note, find_asset):
-        self.find_note, self.find_asset = find_note, find_asset
+    def __init__(self, find_note, find_asset, seal=None):
+        self.find_note, self.find_asset, self.seal = find_note, find_asset, seal
+
+    def asset_src(self, asset):
+        """A picture's address. With a seal it loads on the computer, where nothing else goes along with it."""
+        return "/api/library/asset?path=" + quote(asset, safe="") + ("&amp;s=" + self.seal(asset) if self.seal else "")
 
     # Inline ---------------------------------------------------------------------------------------
 
@@ -86,8 +90,8 @@ class Renderer:
         if embed:
             asset = self.find_asset(target)
             if asset:
-                return keep('<img class="note-img" loading="lazy" alt="%s" src="/api/library/asset?path=%s">'
-                            % (html.escape(label, quote=True), quote(asset, safe="")))
+                return keep('<img class="note-img" loading="lazy" alt="%s" src="%s">'
+                            % (html.escape(label, quote=True), self.asset_src(asset)))
             path = self.find_note(target)
             if not path:
                 return keep('<span class="link-missing">%s</span>' % html.escape(label))
@@ -103,8 +107,8 @@ class Renderer:
         if m.group(1):
             asset = self.find_asset(url) if not scheme else None
             if asset:
-                return keep('<img class="note-img" loading="lazy" alt="%s" src="/api/library/asset?path=%s">'
-                            % (html.escape(text, quote=True), quote(asset, safe="")))
+                return keep('<img class="note-img" loading="lazy" alt="%s" src="%s">'
+                            % (html.escape(text, quote=True), self.asset_src(asset)))
             return keep(html.escape(text))
         if scheme in ("http", "https", "mailto"):
             return keep('<a href="%s" target="_blank" rel="noopener noreferrer">%s</a>'
@@ -273,8 +277,8 @@ class Renderer:
 class Library:
     """Keeps every note in memory and rereads only files whose time changed."""
 
-    def __init__(self, vault, ttl=60):
-        self.vault, self.ttl = Path(vault), ttl
+    def __init__(self, vault, ttl=60, seal=None):
+        self.vault, self.ttl, self.seal = Path(vault), ttl, seal
         self.notes, self.assets, self.pages = {}, {}, set()
         self.by_title, self.by_path, self.backlinks = {}, {}, {}
         self.stamp = 0.0
@@ -399,7 +403,7 @@ class Library:
                 props, body = split_frontmatter(newest)
                 body, hidden = drop_private_lines(body)
         first = re.match(r"\s*#\s+.+?\s*(?:\n|$)", body)
-        renderer = Renderer(lambda t: self.find_note(t, path), self.find_asset)
+        renderer = Renderer(lambda t: self.find_note(t, path), self.find_asset, self.seal)
         text = body[first.end():] if first else body
         links = sorted(self.backlinks.get(path, ()), key=lambda r: self.notes[r]["title"].lower())
         return {"path": path, "title": note["title"], "html": renderer.blocks(text.split("\n")), "props": props,

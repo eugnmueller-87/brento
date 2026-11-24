@@ -6,6 +6,7 @@ credentials are stripped from its environment and the call is refused unless the
 is a claude.ai subscription, so this server has no way to cause a per-token bill.
 """
 import argparse
+import hashlib
 import hmac
 import json
 import os
@@ -37,6 +38,7 @@ WEB = HERE / "web"
 STATIC = {"/": ("index.html", "text/html; charset=utf-8"),
           "/app.js": ("app.js", "text/javascript; charset=utf-8"),
           "/art.js": ("art.js", "text/javascript; charset=utf-8"),
+          "/sign.js": ("sign.js", "text/javascript; charset=utf-8"),
           "/style.css": ("style.css", "text/css; charset=utf-8"),
           "/manifest.webmanifest": ("manifest.webmanifest", "application/manifest+json"),
           "/icon.svg": ("icon.svg", "image/svg+xml"),
@@ -69,9 +71,10 @@ LOOPBACK = {"127.0.0.1", "localhost", "::1"}
 BILLING_ENV = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "CLAUDE_CODE_OAUTH_TOKEN",
                "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY")
 ASK_TOOLS = "Read,Grep,Glob"
-# No settings of the notes folder count and no hooks run, so a folder that other people also write to cannot start a
-# program. What is not allowed is refused instead of asked for, and reading ends at the notes folder.
-ASK_LOCK = ["--setting-sources", "user", "--settings", str(HERE / "ask-settings.json"), "--permission-mode", "dontAsk"]
+# No settings files count, neither the notes folder's nor the owner's, and no hooks run: a folder that other people also
+# write to cannot start a program, and no rule for other work opens other folders. What is not allowed is refused instead
+# of asked for, and reading ends at the notes folder.
+ASK_LOCK = ["--setting-sources", "", "--settings", str(HERE / "ask-settings.json"), "--permission-mode", "dontAsk"]
 ASK_SYSTEM = ("You are the ask box of Brento, %s local dashboard over this vault. You can only read. "
               "Answer from the vault and name the note path behind each claim. If the vault does not say, reply "
               "'I don't know yet'. Lead with the one thing that matters, then at most five short bullets. Reply in "
@@ -82,40 +85,10 @@ MAX_BODY = 64 * 1024
 # Board, calendar and library reread themselves within minutes. The remote brief has no timer of its own.
 REMOTE_EVERY = 6 * 3600
 TICKET_SECONDS = 120
-# Pictures and pages of the vault are loaded by address. Every other question to the server carries a header that a
-# link, a redirect or a foreign page cannot send.
-PLAIN_GETS = {"/api/library/asset", "/api/library/page", "/api/whose"}
-LOCKED = """<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="theme-color" content="#0b0e15">
-<title>Brento</title>
-<style>
-:root { color-scheme: dark; }
-body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #0b0e15; color: #f1f3f8;
-  font: 16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-main { max-width: 430px; padding: 24px; display: grid; gap: 16px; }
-.mark { width: 44px; height: 44px; border-radius: 12px; background: #6cf5bf; transform: rotate(45deg) scale(.72); }
-h1 { margin: 0; font-size: 25px; letter-spacing: -.01em; }
-p { margin: 0; color: #a3a9bd; }
-b { color: #f1f3f8; }
-a { justify-self: start; padding: 11px 18px; border-radius: 12px; background: #6cf5bf; color: #06231a; font-weight: 600; text-decoration: none; }
-</style>
-</head>
-<body>
-<main>
-<div class="mark" aria-hidden="true"></div>
-<h1>Open Brento with its icon</h1>
-<p>Brento opens only for the person it belongs to, and this browser has not been let in yet.</p>
-<p>On Windows press the <b>Windows key</b>, on a Mac <b>Cmd</b> and <b>Space</b>. Type <b>Brento</b> and press <b>Enter</b>.
-After that, this address works here too.</p>
-<a href="/">Try again</a>
-</main>
-</body>
-</html>
-""".encode("utf-8")
+# Pictures and pages of the vault are loaded by address, which carries a seal. Every other question to the server carries
+# a header that a link, a redirect or a foreign page cannot send.
+SEALED_GETS = {"/api/library/asset", "/api/library/page"}
+PLAIN_GETS = SEALED_GETS | {"/api/whose"}
 
 
 class App:
@@ -137,6 +110,7 @@ class App:
         self.hosts = LOOPBACK | {host.lower()} | {h.lower() for h in allow_hosts}
         # 127.0.0.1 belongs to everyone who is signed in to this computer, so the owner's key is asked for here too.
         self.key, self.tickets = address.load_key(self.home), {}
+        self.browsers = address.Browsers(self.home)
         # A team's copy of this repo can carry team.json: the shared board, apps and Slack settings.
         self.team = settings.load_team(HERE)
         saved = settings.load()
@@ -166,7 +140,7 @@ class App:
             registry = []
         if board:
             board.watch = {p["health"] for p in registry if p.get("health")}
-        lib = library.Library(vault)
+        lib = library.Library(vault, seal=self.seal)
         with self.lock:
             self.profile, self.vault, self.board, self.registry, self.library = profile, vault, board, registry, lib
             self.tasks = sources.TaskIndex(vault)
@@ -248,7 +222,8 @@ class App:
         # the aging job, stays as it was.
         if isinstance(given.get("board"), dict):
             merged["board"] = dict(self.profile["board"], **given["board"])
-        profile = settings.save(merged)
+        # A notes folder that is away at the moment must not keep anything else from being saved.
+        profile = settings.save(merged, same_vault="vault" not in given or given["vault"] == self.profile["vault"])
         added = []
         wanted = {str(t) for t in body.get("tools") or []}
         board = profile["board"]
@@ -353,6 +328,10 @@ class App:
                                     self.profile.get("name", ""))
             except Exception as exc:  # the loop must outlive any one bad tick
                 self.slack.error = "Slack: %s" % type(exc).__name__
+
+    def seal(self, path):
+        """What lets a picture of a note load by its address alone: good for this one file."""
+        return hmac.new(self.key.encode("utf-8"), ("asset " + path).encode("utf-8"), hashlib.sha256).hexdigest()[:32]
 
     def ticket(self):
         """A word that lets one browser in, once and soon. It goes into an address, so the key never has to."""
@@ -474,6 +453,8 @@ class Handler(BaseHTTPRequestHandler):
     app = None
     # True on the phone door. The same page, with less it may do.
     phone = False
+    # The hash of the body that a browser signed for, or None when the request is not signed.
+    body_sum = None
 
     def log_message(self, *args):
         pass
@@ -498,39 +479,51 @@ class Handler(BaseHTTPRequestHandler):
         return host in self.app.hosts
 
     def authorized(self):
-        return (same(cookie(self.headers.get("Cookie"), "leitstand"), self.app.key)
-                or same(self.headers.get(address.KEY_HEADER), self.app.key))
+        """The owner's own programs send the key, a browser that was let in signs its requests. Nothing that a browser
+        sends by itself, such as a cookie, opens anything."""
+        if same(self.headers.get(address.KEY_HEADER), self.app.key):
+            return True
+        host = (self.headers.get("Host") or "").lower()
+        name, _, number = host.rpartition(":")
+        if (name or host).strip("[]") in LOOPBACK and number != str(self.app.port):
+            return False
+        self.body_sum = self.app.browsers.signed(self.headers.get(address.SIGN_HEADER), self.command, self.path, host)
+        return self.body_sum is not None
 
     def gate(self, url):
-        """Refuses foreign Host headers (DNS rebinding) and anything without the owner's key."""
+        """Refuses foreign Host headers (DNS rebinding) and anything that does not come from the owner. The page's own
+        files are open: there is nothing in them, and the page asks for everything else."""
         if self.phone:
             return self.phone_gate(url)
         if not self.host_allowed():
             self.send_json({"error": "host not allowed"}, 403)
             return False
-        query = parse_qs(url.query)
-        front = self.command == "GET" and url.path == "/"
-        if front and ("ticket" in query or "key" in query):
-            self.enter(query)
-            return False
-        if self.authorized() or (self.command == "GET" and url.path == "/api/whose"):
+        if self.command == "GET":
+            if url.path == "/" and (self.headers.get("Host") or "").lower().startswith("localhost"):
+                # One address, so a browser that was let in is known under it.
+                self.send_response(303)
+                self.send_header("Location", "http://127.0.0.1:%d%s" % (self.app.port, self.path))
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return False
+            if url.path in STATIC or PHOTO.match(url.path):
+                return True
+            if url.path == "/api/whose" and self.connection.getsockname()[0] in LOOPBACK:
+                return True
+        elif url.path == "/api/enter":
             return True
-        if front:
-            self.send_page(LOCKED, 401)
-        else:
-            self.send_json({"error": "Open Brento with its icon first."}, 401)
+        if self.authorized():
+            return True
+        if self.command == "GET" and url.path in SEALED_GETS:
+            query = parse_qs(url.query)
+            if same((query.get("s") or [""])[0], self.app.seal((query.get("path") or [""])[0])):
+                return True
+        if self.command == "GET" and url.path == "/api/state":
+            # Also what a page of an older version gets: it sees that the code has changed and loads the new one.
+            self.send_json({"locked": True, "webVersion": web_version()})
+            return False
+        self.send_json({"error": "Open Brento with its icon.", "locked": True}, 401)
         return False
-
-    def enter(self, query):
-        """The way in: the launcher's ticket, or the key itself from another computer. The address is cleaned at once."""
-        good = self.app.redeem((query.get("ticket") or [""])[0]) or same((query.get("key") or [""])[0], self.app.key)
-        self.send_response(303)
-        self.send_header("Location", "/")
-        if good:
-            self.send_header("Set-Cookie", "leitstand=%s; Path=/; HttpOnly; SameSite=Strict; Max-Age=31536000" % self.app.key)
-        self.send_header("Cache-Control", "no-store")
-        self.send_header("Content-Length", "0")
-        self.end_headers()
 
     def phone_gate(self, url):
         """The phone door: the pairing page for a phone that is not paired yet, a shorter list of routes for one that is."""
@@ -569,7 +562,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json({"error": "cross-site request refused"}, 403)
             return
         try:
-            length = min(int(self.headers.get("Content-Length") or 0), 200)
+            length = max(0, min(int(self.headers.get("Content-Length") or 0), 200))
         except ValueError:
             length = 0
         typed = (parse_qs(self.rfile.read(length).decode("utf-8", "replace")).get("code") or [""])[0]
@@ -613,9 +606,11 @@ class Handler(BaseHTTPRequestHandler):
         elif url.path == "/api/state":
             self.send_json(dict(self.app.state(), webVersion=web_version(), phone=self.phone))
         elif url.path == "/api/whose":
-            # Only the owner's launcher can tell a right answer from a wrong one.
+            # Only the owner's launcher can tell a right answer from a wrong one. The key is read anew, because the
+            # settings folder may have been replaced or emptied since the start.
             nonce = (parse_qs(url.query).get("n") or [""])[0]
             if address.NONCE.match(nonce):
+                self.app.key = address.load_key(self.app.home)
                 self.send_json({"proof": address.proof(self.app.key, self.app.port, nonce)})
             else:
                 self.send_json({"error": "bad request"}, 400)
@@ -691,22 +686,39 @@ class Handler(BaseHTTPRequestHandler):
             return
         if url.path not in ("/api/ask", "/api/tools", "/api/calendar", "/api/refresh", "/api/open", "/api/setup",
                             "/api/setup/board", "/api/wizard/board", "/api/wizard/open", "/api/slack", "/api/team",
-                            "/api/phone", "/api/ticket"):
+                            "/api/phone", "/api/ticket", "/api/enter"):
             self.send_json({"error": "not found"}, 404)
             return
         origin = urlsplit(self.headers.get("Origin") or "").netloc
         if self.headers.get("X-Leitstand") != "1" or (origin and origin != self.headers.get("Host")):
             self.send_json({"error": "cross-site request refused"}, 403)
             return
-        length = int(self.headers.get("Content-Length") or 0)
-        if length > MAX_BODY:
-            self.send_json({"error": "too long"}, 413)
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            length = -1
+        if not 0 <= length <= MAX_BODY:
+            self.send_json({"error": "too long" if length > 0 else "bad request"}, 413 if length > 0 else 400)
             return
         self.body_read = True
+        raw = self.rfile.read(length)
+        if self.body_sum is not None and self.body_sum != (hashlib.sha256(raw).hexdigest() if raw else "-"):
+            self.send_json({"error": "bad request"}, 400)
+            return
         try:
-            body = json.loads(self.rfile.read(length).decode("utf-8"))
+            body = json.loads(raw.decode("utf-8"))
         except ValueError:
             self.send_json({"error": "bad request"}, 400)
+            return
+        if not isinstance(body, dict):
+            self.send_json({"error": "bad request"}, 400)
+            return
+        if url.path == "/api/enter":
+            # The launcher's ticket, or the key itself from another computer, for a word of this browser's own.
+            if self.app.redeem(str(body.get("ticket") or "")) or same(str(body.get("key") or ""), self.app.key):
+                self.send_json(self.app.browsers.add())
+            else:
+                self.send_json({"error": "Open Brento with its icon.", "locked": True}, 401)
             return
         if url.path == "/api/refresh":
             self.send_json({"problems": self.app.refresh()})
@@ -806,11 +818,11 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json({"error": "Only on the computer. Change the dock in Brento there."}, 403)
                 return
             try:
-                result = self.app.tools.apply(body)
+                self.app.tools.apply(body)
                 if body.get("action") == "card":
                     # Home shows the change on the next read, not up to 20 seconds later.
                     self.app.state_at = 0.0
-                self.send_json(result)
+                self.send_json(self.app.tools.shown())
             except tools.ToolError as exc:
                 self.send_json({"error": str(exc)}, 400)
             return
@@ -932,6 +944,8 @@ def main():
         vault = Path(args.vault).expanduser().resolve()
         if not vault.is_dir():
             raise SystemExit("Vault not found: %s" % vault)
+    # GitHub's program reports a part of its runs to GitHub unless it is told not to.
+    os.environ.setdefault("GH_TELEMETRY", "false")
     app = App(vault, args.host, args.allow_host, args.model)
     Handler.app = app
     server = None
@@ -941,7 +955,7 @@ def main():
             break
         except OSError as exc:
             # Ending cleanly keeps a login service from starting it again and again.
-            if args.port or address.whose(number, timeout=10) == "mine":
+            if args.port or args.host not in LOOPBACK or address.whose(number, timeout=10) == "mine":
                 print("Port %d is in use, so this Brento is not started (%s)." % (number, exc), flush=True)
                 return
             # Another person on this computer, or another program: the next port.

@@ -20,7 +20,7 @@ age of its source, and the page draws them.
 | File | What it does |
 |---|---|
 | `server.py` | Local web server on 127.0.0.1:8770. Serves the page and the JSON API; refuses foreign hosts, anyone without the owner's key, and requests that do not come from its own page |
-| `address.py` | The owner's key, the port (8770 or the next free one) and the question whose Brento answers there. `ask-settings.json` beside it locks the Ask box |
+| `address.py` | The owner's key, the browsers that were let in, the port (8770 or the next free one) and the question whose Brento answers there. `ask-settings.json` beside it locks the Ask box |
 | `settings.py` | The owner's settings (`~/.brento/brento.json`), the list of sources, the team file (`team.json`) |
 | `sources.py` | One reader per source, and the rules that rank cards for Home, Today and the schedule check |
 | `wizard.py` | The first-start wizard's guesses and its few actions: create a board, run a sign-in without a window, fetch the GitHub program where the installer did not bring it |
@@ -31,7 +31,7 @@ age of its source, and the page draws them.
 | `library.py` | Reads the vault's notes for the Library page: titles, links, backlinks, search |
 | `tools.py` | The dock: the only list the owner edits inside Brento |
 | `tools.catalog.json` | The apps the wizard offers for the dock |
-| `web/` | The page: `app.js` (all pages), `art.js` (drawn pictures), `style.css`, `photos/` |
+| `web/` | The page: `app.js` (all pages), `sign.js` (signs its requests), `art.js` (drawn pictures), `style.css`, `photos/` |
 | `packaging/` | Builds the two installers: `build.py`, the pinned downloads in `runtimes.json`, `mac/`, `windows/`, and the check that runs after an install |
 | `install.sh`, `install.ps1` | Sets up the start at login and the app on a Mac (the Mac installer runs it too) or Linux; the same for a copy of the source code on Windows |
 | `tests/` | `python -m unittest discover -s tests`; GitHub runs them on every push |
@@ -67,12 +67,14 @@ stop the start, so no secret or personal path can slip in.
 
 - Read, never write: no note, card or appointment is changed. The only writes are Brento's own files in `~/.brento`,
   plus a board or field the owner asks the wizard to create.
-- Secrets live in their own files (`calendar-url`, `slack-webhook`, `access-key`) and never travel back to a page or into
-  a log. The key is never part of an address either: the launcher asks for a ticket that works once, for two minutes.
-- 127.0.0.1 is shared by everyone who is signed in to a computer. Nothing is served without the key, and the key is only
-  sent to a server that has proved it already knows it (`address.whose`).
-- Every question to `/api/` carries the header `X-Leitstand`, which a link, a redirect or a foreign page cannot send.
-  A new route that does something on the computer must not be reachable without it.
+- Secrets live in their own files (`calendar-url`, `slack-webhook`, `access-key`, `browsers.json`) and never travel back to
+  a page or into a log. The key is never part of an address either: the launcher asks for a ticket that works once, for
+  two minutes, and the page trades it for a word of its own.
+- 127.0.0.1 is shared by everyone who is signed in to a computer, and a browser gives its cookies to every port on it. So
+  there is no cookie: a page signs each request (`web/sign.js`), and what another program overhears is good for nothing
+  else. The owner's key is only sent to a server that has proved it already knows it (`address.whose`).
+- The page's own files are open and hold nothing. Every question to `/api/` is signed and carries the header
+  `X-Leitstand`; pictures of notes carry a seal in their address. A new route is closed to strangers by itself.
 - What other people can write into the notes folder is data: a note is escaped, a web page in it is shown in a sandbox,
   and settings or hooks in it never reach the Ask box.
 - Only fixed programs can be started from the page (`wizard.ACTIONS`, the dock's own list), never anything a page sends.

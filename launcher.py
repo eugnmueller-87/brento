@@ -25,6 +25,7 @@ import settings  # noqa: E402
 LABEL = "app.brento.server"
 NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0
 MAX_LOG = 1024 * 1024
+WOULD_NOT_STOP = 3
 
 
 def output(args):
@@ -195,7 +196,12 @@ def start():
         return ""
     if not agent() or not start_service(agent()):
         spawn()
-    if until(mine, 60):
+    if until(mine, 30):
+        return ""
+    if agent():
+        # The service runs and does not prove itself: it hangs. Once more, from the beginning.
+        launchctl("kickstart", "-k", "gui/%d/%s" % (os.getuid(), LABEL))
+    if until(mine, 30):
         return ""
     return "Brento did not start. What went wrong is in this file:\n%s" % (settings.home() / "server.log")
 
@@ -210,6 +216,14 @@ def app_window():
     return ""
 
 
+def doorway(page):
+    """A file only the owner can read that leads to the page, for systems where an address would show in the list of
+    running programs."""
+    path = settings.home() / "open.html"
+    address.private_file(path, '<!doctype html><meta charset="utf-8"><title>Brento</title><meta http-equiv="refresh" content="0;url=%s">\n' % page)
+    return str(path)
+
+
 def show():
     if os.environ.get("BRENTO_NO_BROWSER"):
         return
@@ -222,9 +236,13 @@ def show():
         else:
             os.startfile(page)
     elif sys.platform == "darwin":
-        subprocess.run(["/usr/bin/open", page], check=False)
+        # Not as an argument: on a Mac every account can read the list of running programs, and with it the ticket.
+        done = subprocess.run(["/usr/bin/osascript"], input=('open location "%s"\n' % page).encode("ascii"),
+                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+        if done.returncode:
+            subprocess.run(["/usr/bin/open", doorway(page)], check=False)
     else:
-        subprocess.Popen(["xdg-open", page], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.Popen(["xdg-open", doorway(page)], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 def tell(text):
@@ -249,7 +267,8 @@ def main(argv=None):
     parser.add_argument("--replace", action="store_true", help="stop whichever Brento this person has running first")
     args = parser.parse_args(argv)
     if args.stop:
-        return 0 if stop() else 1
+        # A code of its own, so an installer can tell "would not stop" from a copy that is too broken to run at all.
+        return 0 if stop() else WOULD_NOT_STOP
     if args.replace:
         stop(any_brento=True)
     problem = start()

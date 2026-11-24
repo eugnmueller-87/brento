@@ -90,12 +90,13 @@ def up(kept=False):
     check(str(BASE) in running, "it runs from its own folder: %s" % running)
     status, page = get("")
     check(status == 200 and b'id="view"' in page, "the page loads")
-    for name in ("app.js", "art.js", "style.css"):
+    for name in ("app.js", "art.js", "sign.js", "style.css"):
         status, body = get(name)
         check(status == 200 and body == (BASE / "app" / "web" / name).read_bytes(), "%s is the installed one" % name)
-    for path in ("", "app.js", "api/state", "api/setup", "api/tools"):
-        status, body = get(path, key=False)
-        check(status == 401 and b"not been let in" in body if not path else status == 401, "without the key: %s is locked" % (path or "the page"))
+    status, body = get("api/state", key=False)
+    check(status == 200 and sorted(json.loads(body.decode("utf-8"))) == ["locked", "webVersion"], "without the key there is nothing to see")
+    for path in ("api/setup", "api/tools", "api/wizard", "api/library"):
+        check(get(path, key=False)[0] == 401, "without the key: %s is locked" % path)
     check(re.match(re.escape(address.page()) + r"\?ticket=[\w-]{20,}$", address.entrance()), "the icon gets a ticket that lets the browser in")
     status, body = get("api/wizard")
     view = json.loads(body.decode("utf-8"))

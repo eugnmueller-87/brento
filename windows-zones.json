@@ -1,4 +1,5 @@
 {
+  "tzone://Microsoft/Utc": "Etc/UTC",
   "AUS Central Standard Time": "Australia/Darwin",
   "AUS Eastern Standard Time": "Australia/Sydney",
   "Afghanistan Standard Time": "Asia/Kabul",

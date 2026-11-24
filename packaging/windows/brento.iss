@@ -162,7 +162,8 @@ begin
   Python := ExpandConstant('{app}\python\pythonw.exe');
   Launcher := ExpandConstant('{app}\app\launcher.py');
   if FileExists(Python) and FileExists(Launcher) then
-    if (not Exec(Python, '"' + Launcher + '" --stop', '', SW_HIDE, ewWaitUntilTerminated, Code)) or (Code <> 0) then
+    // Only that one code. A copy that is too damaged to run at all must be repairable by installing again.
+    if Exec(Python, '"' + Launcher + '" --stop', '', SW_HIDE, ewWaitUntilTerminated, Code) and (Code = 3) then
       Result := CustomMessage('StillRunning');
 end;
 
@@ -173,7 +174,7 @@ procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
   Folder: String;
 begin
-  if CurUninstallStep <> usPostUninstall then
+  if (CurUninstallStep <> usPostUninstall) or UninstallSilent then
     exit;
   Folder := GetEnv('USERPROFILE') + '\.brento';
   if DirExists(Folder) then

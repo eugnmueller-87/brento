@@ -85,6 +85,8 @@ fi
 if [ $MAC = 1 ] && [ $AUTOSTART = 1 ]; then
   # Starts at every login. A crash restarts it; a clean stop (another Brento already answers) does not.
   mkdir -p "$HOME/Library/LaunchAgents"
+  HOME_ENTRY=""
+  if [ -n "${BRENTO_HOME:-}" ]; then HOME_ENTRY="<key>BRENTO_HOME</key><string>$(xml "$BRENTO_HOME")</string>"; fi
   cat > "$AGENT" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -98,7 +100,7 @@ if [ $MAC = 1 ] && [ $AUTOSTART = 1 ]; then
   <key>ThrottleInterval</key><integer>30</integer>
   <key>StandardOutPath</key><string>$(xml "$DIR/server.log")</string>
   <key>StandardErrorPath</key><string>$(xml "$DIR/server.log")</string>
-  <key>EnvironmentVariables</key><dict><key>PATH</key><string>$(xml "$BIN:$DIR/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin")</string></dict>
+  <key>EnvironmentVariables</key><dict><key>PATH</key><string>$(xml "$BIN:$DIR/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin")</string>$HOME_ENTRY</dict>
 </dict>
 </plist>
 EOF
