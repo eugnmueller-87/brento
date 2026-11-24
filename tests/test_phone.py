@@ -171,7 +171,7 @@ class MacSetup(unittest.TestCase):
         self.assertEqual(wizard.gh_asset(names, "darwin", "arm64"), "gh_2.105.0_macOS_arm64.zip")
         self.assertEqual(wizard.gh_asset(names, "darwin", "x86_64"), "gh_2.105.0_macOS_amd64.zip")
         self.assertEqual(wizard.gh_asset(names, "linux", "aarch64"), "gh_2.105.0_linux_arm64.tar.gz")
-        self.assertIsNone(wizard.gh_asset(names, "win32", "amd64"))
+        self.assertEqual(wizard.gh_asset(names, "win32", "AMD64"), "gh_2.105.0_windows_amd64.zip")
         self.assertIsNone(wizard.gh_asset(names, "darwin", "sparc"))
 
     def fake_fetch(self, data, digest):
@@ -207,24 +207,17 @@ class MacSetup(unittest.TestCase):
         with self.assertRaises(ValueError):
             wizard.fetch_https("http://github.com/cli/cli")
 
-    def test_sign_in_opens_in_terminal_on_a_mac(self):
-        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(os.environ, {"BRENTO_HOME": tmp}), \
-                mock.patch.object(settings, "system", return_value="darwin"), \
-                mock.patch.object(wizard.settings, "find_exe", return_value="/opt/homebrew/bin/gh"), \
-                mock.patch.object(wizard.subprocess, "Popen") as popen:
-            result = wizard.open_window("gh-login")
-            self.assertTrue(result["opened"])
-            script = Path(tmp, "run-gh-login.command")
-            self.assertIn("/opt/homebrew/bin/gh auth login --web", script.read_text(encoding="utf-8"))
-            self.assertEqual(popen.call_args[0][0], ["open", "-a", "Terminal", str(script)])
-
-    def test_install_on_a_mac_runs_without_a_window(self):
-        with mock.patch.object(settings, "system", return_value="darwin"), mock.patch.object(wizard, "install_gh") as install, \
-                mock.patch.object(wizard.subprocess, "Popen") as popen:
-            result = wizard.open_window("gh-install")
-            self.assertTrue(result["opened"])
-            popen.assert_not_called()
-        install.assert_called_once()
+    def test_the_download_runs_without_a_window_everywhere(self):
+        for system in ("darwin", "win32", "linux"):
+            with mock.patch.object(settings, "system", return_value=system), mock.patch.object(wizard, "install_gh") as install, \
+                    mock.patch.object(wizard.subprocess, "Popen") as popen, \
+                    mock.patch.dict(wizard.INSTALL, {"running": False, "error": "", "done": False}):
+                result = wizard.start_action("gh-install")
+                self.assertTrue(result["started"])
+                popen.assert_not_called()
+                # A second click while it runs does not download twice.
+                wizard.start_action("gh-install")
+            install.assert_called_once()
 
     def test_programs_outside_launchds_short_path_are_found(self):
         calls = []

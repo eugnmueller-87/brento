@@ -26,3 +26,4 @@ jobs:
           for f in web/app.js web/art.js; do node --check "$f" || exit 1; done
           sh -n install.sh
           sh -n "Install Brento.command"
+          sh -n packaging/mac/postinstall

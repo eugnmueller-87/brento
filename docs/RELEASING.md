@@ -14,8 +14,22 @@ what reaches them. Brento is developed in a separate working copy; each new vers
    git push origin main v0.2.0
    ```
 
-5. The release workflow (`.github/workflows/release.yml`) runs the tests, checks that the tag matches `VERSION` and
-   that the changelog has a section for it, and publishes the release with that section as its text.
+5. The release workflow (`.github/workflows/release.yml`) runs the tests, builds both installers, and installs,
+   starts, updates and removes each of them on real Macs (Apple chip and Intel) and on Windows. Only when all of that
+   worked, it publishes the release with the installers, their checksums and the changelog section as its text.
+
+To try all of this without publishing, open **Actions**, **release**, **Run workflow**, or push to a branch called
+`try/something`. It also keeps a picture of each installer.
+
+## What goes into the installers
+
+`packaging/runtimes.json` names the Python and the GitHub program that go along, by address and SHA-256. To update one,
+change its address, compare the new checksum with the publisher's list, and write it down there. A file that differs
+stops the build. Build by hand with `python packaging/build.py mac` (any computer) or `windows` (Windows with Inno
+Setup 6).
+
+The installers are not signed. A signature is what ends the security question on the first start: on a Mac through
+Apple's paid Developer Program, on Windows through a code signing certificate.
 
 ## Numbers
 

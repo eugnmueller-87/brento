@@ -625,6 +625,9 @@ a.chip { text-decoration: none; }
 .wz-apps { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 6px; }
 .wz-app { display: flex; align-items: center; gap: 9px; padding: 9px 11px; border-radius: 11px; background: var(--panel-2); border: 1px solid var(--line); cursor: pointer; }
 .wz-app.done { opacity: .6; cursor: default; }
+.wz-code { font: 650 clamp(26px, 3.4vw, 38px)/1.2 ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: .08em; user-select: all; }
+.wz-extra > .btn { justify-self: start; }
+.wz-extra .wz-steps { color: var(--muted); }
 .wz-sum { display: grid; gap: 6px; padding-left: 20px; }
 .wz-extra { display: grid; gap: 8px; padding: 14px 16px; border-radius: 13px; background: var(--panel-2); border: 1px solid var(--line); }
 .wz-extra p { color: var(--muted); }

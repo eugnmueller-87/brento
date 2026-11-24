@@ -1516,9 +1516,9 @@
       + '<div class="setup-field"><label for="su-taskhome">Tasks on Home</label><select id="su-taskhome"><option value="all"' + (P.tasks.home !== 'priority' ? ' selected' : '') + '>Every dated task due within a week, or missed</option>'
       + '<option value="priority"' + (P.tasks.home === 'priority' ? ' selected' : '') + '>Only tasks marked medium priority or higher</option></select></div>');
     const B = P.board, gh = SETUP.gh;
-    html += step('4', 'GitHub Project board', setupStatus(gh.ready, gh.ready ? 'gh signed in' + (gh.login ? ' as ' + gh.login : '') : 'gh not ready'),
-      'Brento reads the board with the GitHub CLI you are signed in to. Cards in the lanes HIGH, MID and LOW count; a HIGH card with a date inside a week reaches Home.',
-      (gh.ready ? '' : '<p class="note">' + esc(gh.reason) + '</p>')
+    html += step('4', 'GitHub Project board', setupStatus(gh.ready, gh.ready ? 'signed in' + (gh.login ? ' as ' + gh.login : '') : 'not signed in'),
+      'Brento reads the board through GitHub\'s own program, with your sign-in. Cards in the lanes HIGH, MID and LOW count; a HIGH card with a date inside a week reaches Home.',
+      (gh.ready ? '' : '<p class="note">' + esc(gh.reason) + ' <a class="link-btn" href="#setup/2">Sign in to GitHub</a></p>')
       + '<div class="setup-row"><div class="setup-field"><label for="su-owner">Owner: your login or an organization</label><input id="su-owner" value="' + esc(B.owner) + '" spellcheck="false"></div>'
       + '<div class="setup-field"><label for="su-kind">The owner is</label><select id="su-kind"><option value="user"' + (B.ownerType !== 'org' ? ' selected' : '') + '>a person</option><option value="org"' + (B.ownerType === 'org' ? ' selected' : '') + '>an organization</option></select></div>'
       + '<div class="setup-field"><label for="su-num">Project number</label><input id="su-num" inputmode="numeric" value="' + esc(B.number || '') + '" placeholder="the number at the end of its address"></div>'
@@ -1530,7 +1530,7 @@
     const C = SETUP.claude;
     html += step('6', 'Ask box', C ? setupStatus(C.ready, C.ready ? 'Claude Code ready' + (C.plan ? ', ' + C.plan : '') : 'not ready') : '<span class="pill">off</span>',
       'Questions about your notes, answered by the claude program on this computer under your own Claude login. Brento never sees or stores the login, and refuses to run on an API key, so it cannot cause a bill.',
-      C && !C.ready ? '<p class="note">' + esc(C.reason) + '</p>' : '');
+      C && !C.ready ? '<p class="note">' + esc(C.reason) + (/not installed/i.test(C.reason) ? '' : ' <a class="link-btn" href="#setup/6">Sign in to Claude</a>') + '</p>' : '');
     html += step('7', 'Tools for your dock', '', 'Pick the apps you use every day. They join the dock as their own windows. Remove one later with a right-click on it.',
       grouped(SETUP.catalog).map((g) => '<div class="setup-group">' + esc(g.name) + '</div><div class="setup-grid">' + g.items.map((t) => setupOpt('checkbox', 'su-tool', t.id, t.added, t.name, t.added ? 'In your dock' : t.url.replace(/^https?:\/\//, '').replace(/\/$/, ''), t.added)).join('') + '</div>').join(''));
     const SL = P.slack || { digest: '08:00', alerts: true, remind: 10, sources: ['calendar', 'board', 'tasks'] };
@@ -1638,7 +1638,7 @@
     fetch('/api/wizard/vault?path=' + encodeURIComponent(WZ.vault)).then((r) => r.json()).then((j) => { WZ.stats = j; if (WZ_STEPS[WZ.step] === 'notes') paintWizard(); }).catch(() => {});
   }
   function wzGo(delta) { clearInterval(WZ.timer); WZ.msg = ''; WZ.step = clamp(WZ.step + delta, 0, WZ_STEPS.length - 1); paintWizard(); }
-  // While a sign-in window is open, ask every few seconds whether it is done, so nobody has to press anything here.
+  // While a sign-in runs, ask every few seconds whether it is done, so nobody has to press anything here.
   function wzPoll() {
     clearInterval(WZ.timer);
     WZ.timer = setInterval(() => {
@@ -1646,9 +1646,10 @@
       fetch('/api/wizard/gh').then((r) => r.json()).then((j) => {
         if (j.install && j.install.error && !j.gh.ready) { clearInterval(WZ.timer); WZ.msg = j.install.error; paintWizard(); return; }
         const was = WZ.data.gh.ready && !!WZ.data.gh.login;
-        WZ.data.gh = j.gh; WZ.data.projects = j.projects; WZ.data.projectsError = j.projectsError;
+        WZ.data.gh = j.gh; WZ.data.projects = j.projects; WZ.data.projectsError = j.projectsError; WZ.data.orgs = j.orgs; WZ.data.signin = j.signin;
+        const seen = j.gh.reason + JSON.stringify(j.signin);
         if (j.gh.ready && !was) { clearInterval(WZ.timer); WZ.msg = ''; paintWizard(); }
-        else if (!j.gh.ready && j.gh.reason !== WZ.lastReason) { WZ.lastReason = j.gh.reason; paintWizard(); }
+        else if (!j.gh.ready && seen !== WZ.lastSeen) { WZ.lastSeen = seen; paintWizard(); }
       }).catch(() => {});
     }, 3000);
   }
@@ -1664,14 +1665,43 @@
       WZ.board = j;
     }).catch((err) => { WZ.msg = err.message; }).finally(() => { WZ.boardBusy = ''; paintWizard(); });
   }
+  // The same for the Claude sign-in. Once it is done, the Ask box is switched on, because the rest is already saved.
+  function wzPollClaude() {
+    clearInterval(WZ.timer);
+    WZ.timer = setInterval(() => {
+      if (route !== 'setup') { clearInterval(WZ.timer); return; }
+      fetch('/api/wizard/claude').then((r) => r.json()).then((c) => {
+        WZ.data.claude = c;
+        const s = c.signin || {};
+        if (c.ready) {
+          clearInterval(WZ.timer);
+          WZ.msg = '';
+          const src = WZ.sources || WZ.data.profile.sources;
+          if (WZ.vault && src.ask) { src.ask.on = true; post('/api/setup', { profile: { sources: src } }).then(() => { stateText = ''; load(); }).catch((err) => toast(err.message)); }
+          paintWizard();
+        } else if (!s.running) { clearInterval(WZ.timer); WZ.msg = s.error || ''; paintWizard(); }
+      }).catch(() => {});
+    }, 4000);
+  }
   function wzOpen(action, waitText) {
-    WZ.msg = '';
+    WZ.msg = waitText;
+    paintWizard();
     post('/api/wizard/open', { action }).then((j) => {
-      WZ.msg = j.opened ? waitText : 'Run this in a terminal, then come back: ' + j.command;
+      WZ.data.signin = j.signin;
       paintWizard();
-      if (action.startsWith('gh')) wzPoll();
-      if (action === 'claude-login') setTimeout(() => fetch('/api/wizard/claude').then((r) => r.json()).then((c) => { WZ.data.claude = c; paintWizard(); }), 20000);
+      if (action.startsWith('gh')) wzPoll(); else wzPollClaude();
     }).catch((err) => { WZ.msg = err.message; paintWizard(); });
+  }
+  // GitHub's one-time code, large, with the button that copies it and opens the page it belongs on.
+  function wzCode(again) {
+    const s = WZ.data.signin || {};
+    if (!/^gh/.test(s.action || '')) return '';
+    if (s.error) return wzWarn(esc(s.error));
+    if (!s.running || !s.code) return '';
+    return '<div class="wz-extra"><p>Your one-time code for GitHub:</p><b class="wz-code" id="wz-code">' + esc(s.code) + '</b>'
+      + '<a class="btn primary" id="wz-code-go" href="' + esc(s.url) + '" target="_blank" rel="noopener noreferrer">Copy the code and open GitHub</a>'
+      + '<ol class="wz-steps"><li>Sign in there, or make a free account.</li><li>Paste the code and click Continue.</li><li>Click Authorize. Then come back, this page moves on by itself.</li></ol>'
+      + '<p><button class="link-btn" type="button" data-open="' + again + '">I need a new code</button></p></div>';
   }
   const wzOk = (text) => '<p class="wz-ok"><span class="dot fresh"></span>' + text + '</p>';
   const wzWarn = (text) => '<p class="wz-warn">' + text + '</p>';
@@ -1689,15 +1719,16 @@
   function wzBoard() {
     const d = WZ.data, gh = d.gh;
     let html = '<h2>Your to-do board</h2><p class="wz-lead">Brento reads a free GitHub Project board with three lanes: HIGH, MID and LOW. A HIGH card with a date reaches your home screen in time.</p>';
-    const busy = WZ.msg ? '<p class="wz-wait">' + esc(WZ.msg) + '</p>' : '';
+    const busy = WZ.msg && !(WZ.data.signin && (WZ.data.signin.code || WZ.data.signin.error)) ? '<p class="wz-wait">' + esc(WZ.msg) + '</p>' : '';
+    const running = !!(WZ.data.signin && WZ.data.signin.running && WZ.data.signin.code);
     if (!gh.ready && /not installed/i.test(gh.reason)) {
       html += '<p>First, the free GitHub program for this computer.</p>' + (d.canInstall ? '<button class="btn primary" type="button" data-open="gh-install">Install it for me</button>' : '<p class="note">Install it from <a href="https://cli.github.com/" target="_blank" rel="noopener noreferrer">cli.github.com</a>, then come back.</p>') + busy;
       return html;
     }
     if (!gh.ready && /not signed in/i.test(gh.reason)) {
-      return html + '<p>Sign in to GitHub once. A free account is enough.</p><button class="btn primary" type="button" data-open="gh-login">Sign in to GitHub</button>' + busy;
+      return html + (running ? '' : '<p>Sign in to GitHub once. A free account is enough.</p><button class="btn primary" type="button" data-open="gh-login">Sign in to GitHub</button>') + wzCode('gh-login') + busy;
     }
-    if (!gh.ready) return html + '<p>Brento needs permission to read your boards.</p><button class="btn primary" type="button" data-open="gh-scope">Allow it</button>' + busy;
+    if (!gh.ready) return html + (running ? '' : '<p>Brento needs permission to read your boards.</p><button class="btn primary" type="button" data-open="gh-scope">Allow it</button>') + wzCode('gh-scope') + busy;
     if (WZ.boardBusy) return html + '<p class="wz-wait">' + esc(WZ.boardBusy) + '</p>';
     const T = d.team;
     if (T && T.board.owner && T.board.number && !WZ.board && !WZ.teamTried) {
@@ -1769,7 +1800,8 @@
       html += '<div class="wz-extra"><b>Set up your team in one go</b><p>Save this board, these apps and the Slack timing as team.json in the Brento folder. Commit and push it, and everyone who installs from your copy of the repo gets the same setup without choosing.</p>'
         + (WZ.teamSaved ? wzOk('Saved as team.json. Commit and push it to share.') : '<button class="btn" type="button" id="wz-team">Save as team setup</button>') + '</div>';
     }
-    if (d.platform === 'darwin') html += '<div class="wz-extra"><b>Brento on your Mac</b><p>Brento starts when you log in, and Spotlight and Launchpad find it as an app. In Safari you can also choose File, then Add to Dock.</p></div>';
+    if (d.platform === 'darwin') html += '<div class="wz-extra"><b>Brento on your Mac</b><p>Brento starts when you log in. To open it later, press Cmd and Space, type Brento and press Return. In Safari you can also choose File, then Add to Dock.</p></div>';
+    if (d.platform === 'win32') html += '<div class="wz-extra"><b>Brento on your computer</b><p>To open Brento later, press the Windows key, type Brento and press Enter. Right-click the icon to pin it to the taskbar.</p></div>';
     html += '<div class="wz-extra"><b>Brento on your phone</b><p>iPhone or Android: Brain, then "Sources and setup", then Phone. It takes a six-digit code, nothing to install.</p></div>';
     return html + '<p class="note">Change anything later: Brain, then "Sources and setup".</p>';
   }
@@ -1782,6 +1814,7 @@
     const b = WZ.board || {};
     const board = WZ.board ? { owner: b.owner, ownerType: b.ownerType, number: b.number, statusField: b.statusField, areaField: b.areaField || '', dueField: b.dueField || '', doneField: b.doneField || '',
       homeAreas: b.homeAreas || {}, me: d.gh.login || '' } : undefined;
+    WZ.sources = sources;
     const profile = { name: WZ.name, vault: WZ.vault, sources, tasks: d.profile.tasks, slack: WZ.slack };
     if (board) profile.board = board;
     return post('/api/setup', { profile, tools: Array.from(WZ.tools || []) });
@@ -1815,8 +1848,9 @@
     on('#wz-home', () => { stateText = ''; load(); navigate('home'); });
     on('#wz-team', () => post('/api/team', { team: WZ.board.owner, tools: Array.from(WZ.tools || []), calendar: WZ.calOk ? WZ.provider : '' })
       .then(() => { WZ.teamSaved = true; paintWizard(); }).catch((err) => toast(err.message)));
-    $$('#wz [data-open]').forEach((b) => { b.onclick = () => wzOpen(b.dataset.open, b.dataset.open === 'gh-install' ? (WZ.data.platform === 'win32' ? 'Installing in its own window. This page moves on by itself when it is done.' : 'Downloading the GitHub program from github.com. This page moves on by itself when it is done.')
-      : b.dataset.open === 'claude-login' ? 'A window opened. Finish the sign-in there, then come back.' : 'A window opened and your one-time code is copied. Paste it on the GitHub page that opens. This page moves on by itself.'); });
+    $$('#wz [data-open]').forEach((b) => { b.onclick = () => wzOpen(b.dataset.open, b.dataset.open === 'gh-install' ? 'Downloading the GitHub program from github.com. This page moves on by itself when it is done.'
+      : b.dataset.open === 'claude-login' ? 'Claude\'s sign-in page opens in your browser. Confirm there, then come back. This page moves on by itself.' : 'Getting a code from GitHub…'); });
+    on('#wz-code-go', () => { if (navigator.clipboard) navigator.clipboard.writeText($('#wz-code').textContent).then(() => toast('Code copied. Paste it on the GitHub page.')).catch(() => {}); });
     if (name === 'welcome') { const n = $('#wz-name'); n.oninput = () => { WZ.name = n.value.trim(); }; n.focus(); }
     if (name === 'notes') {
       $$('#wz [data-vault]').forEach((b) => { b.onclick = () => { const v = b.dataset.vault; WZ.other = v === '__other'; WZ.vault = WZ.other ? '' : v; if (WZ.vault) vaultStats(); paintWizard(); }; });
@@ -1830,7 +1864,7 @@
       $$('#wz [data-board]').forEach((b) => { b.onclick = () => pickBoard({ action: 'pick', owner: b.dataset.owner, ownerType: b.dataset.kind, number: Number(b.dataset.board) }, 'Reading the board…'); });
       on('#wz-lanes', () => pickBoard({ action: 'lanes', owner: WZ.board.owner, ownerType: WZ.board.ownerType, number: WZ.board.number }, 'Adding the lanes…'));
       on('#wz-reboard', () => { WZ.board = null; paintWizard(); });
-      if (!WZ.data.gh.ready && WZ.msg) wzPoll();
+      if (!WZ.data.gh.ready && (WZ.msg || (WZ.data.signin && WZ.data.signin.running))) wzPoll();
     }
     if (name === 'calendar') {
       $$('#wz [data-provider]').forEach((b) => { b.onclick = () => { WZ.provider = b.dataset.provider; WZ.msg = ''; paintWizard(); }; });

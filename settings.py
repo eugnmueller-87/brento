@@ -226,8 +226,10 @@ def clean_slack(value):
     return {"digest": digest, "alerts": bool(value.get("alerts", True)), "remind": max(0, min(120, remind)), "sources": chosen}
 
 
+# Programs the installer brought along, next to the code. A copy of the source code has no such folder.
+BUNDLED_BIN = Path(__file__).resolve().parent / "bin"
 # Where a Mac or Linux keeps programs that a login service's short PATH does not list: Homebrew, the native
-# Claude Code installer, npm, and Brento's own folder for the GitHub CLI it downloads.
+# Claude Code installer, npm.
 EXTRA_BIN = ("/opt/homebrew/bin", "/usr/local/bin", "~/.local/bin", "~/.claude/local", "~/.npm-global/bin", "~/bin")
 
 
@@ -238,16 +240,18 @@ def system():
 
 def find_exe(name):
     """A program on the PATH. On Windows the PATH is read fresh from the registry as well, so a program the setup
-    just installed is found without restarting Brento. On a Mac or Linux the usual folders are searched too."""
+    just installed is found without restarting Brento. On a Mac or Linux the usual folders are searched too.
+    Last come Brento's own two folders: the one it downloads into and the one the installer filled."""
     found = shutil.which(name)
     if found:
         return found
+    own = [str(home() / "bin"), str(BUNDLED_BIN)]
     if system() != "win32":
-        folders = [str(home() / "bin")] + [os.path.expanduser(d) for d in EXTRA_BIN]
+        folders = [os.path.expanduser(d) for d in EXTRA_BIN] + own
         return shutil.which(name, path=os.pathsep.join(folders))
+    parts = []
     try:
         import winreg
-        parts = []
         for root, key in ((winreg.HKEY_CURRENT_USER, "Environment"),
                           (winreg.HKEY_LOCAL_MACHINE, r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment")):
             try:
@@ -255,9 +259,9 @@ def find_exe(name):
                     parts.append(os.path.expandvars(winreg.QueryValueEx(handle, "Path")[0]))
             except OSError:
                 continue
-        return shutil.which(name, path=os.pathsep.join(parts)) if parts else None
     except ImportError:
-        return None
+        pass
+    return shutil.which(name, path=os.pathsep.join(parts + own))
 
 
 def clean_script(value):

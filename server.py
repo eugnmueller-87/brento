@@ -233,8 +233,8 @@ class App:
                     projects=found, projectsError=error, claude=self.auth(even_off=True), vaults=vaults,
                     team=self.team, orgs=wizard.orgs() if gh["ready"] else [],
                     slackConnected=self.slack.connected(), slackCreate=slack_notify.CREATE_URL,
-                    winget=bool(settings.find_exe("winget")), platform=sys.platform,
-                    canInstall=sys.platform in ("darwin", "linux") or bool(settings.find_exe("winget")))
+                    platform=sys.platform, signin=wizard.SIGNIN.view(),
+                    canInstall=sys.platform in ("darwin", "linux", "win32"))
 
     def phone_listen(self):
         """Opens or closes the phone door to match the setting. The computer's own page stays on loopback."""
@@ -359,7 +359,7 @@ class App:
                 if info.get("loggedIn") and info.get("authMethod") == "claude.ai":
                     result.update(ready=True, plan=info.get("subscriptionType"), reason="")
                 else:
-                    result["reason"] = "Not signed in with a Claude plan on this machine. Run: claude auth login"
+                    result["reason"] = "Not signed in with a Claude plan on this computer yet."
             except (OSError, ValueError, subprocess.SubprocessError) as exc:
                 result["reason"] = "Could not read the login state: %s" % exc
         with self.lock:
@@ -528,12 +528,13 @@ class Handler(BaseHTTPRequestHandler):
         elif url.path == "/api/wizard":
             self.send_json(self.app.wizard_view())
         elif url.path == "/api/wizard/gh":
-            # Polled while a sign-in window is open, so the page moves on by itself once it is done.
+            # Polled while a sign-in runs, so the page moves on by itself once it is done.
             gh = sources.gh_status()
             found, error = wizard.projects() if gh["ready"] else ([], "")
-            self.send_json({"gh": gh, "projects": found, "projectsError": error, "install": dict(wizard.INSTALL)})
+            self.send_json({"gh": gh, "projects": found, "projectsError": error, "install": dict(wizard.INSTALL),
+                            "orgs": wizard.orgs() if gh["ready"] else [], "signin": wizard.SIGNIN.view()})
         elif url.path == "/api/wizard/claude":
-            self.send_json(self.app.auth(even_off=True, fresh=True))
+            self.send_json(dict(self.app.auth(even_off=True, fresh=True), signin=wizard.SIGNIN.view()))
         elif url.path == "/api/wizard/vault":
             self.send_json(wizard.vault_stats((parse_qs(url.query).get("path") or [""])[0][:500]))
         elif url.path.startswith("/api/library") and not settings.on(self.app.profile, "library"):
@@ -571,6 +572,22 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json({"error": "not found"}, 404)
 
     def do_POST(self):
+        self.body_read = False
+        self.handle_post()
+        if not self.body_read:
+            self.drain()
+
+    def drain(self):
+        """Takes in what a refused request still has to say. Closing with it unread can cut off the answer on its way."""
+        try:
+            left = min(int(self.headers.get("Content-Length") or 0), MAX_BODY)
+            if left > 0:
+                self.connection.settimeout(2)
+                self.rfile.read(left)
+        except (OSError, ValueError):
+            pass
+
+    def handle_post(self):
         url = urlsplit(self.path)
         if not self.gate(url):
             return
@@ -587,6 +604,7 @@ class Handler(BaseHTTPRequestHandler):
         if length > MAX_BODY:
             self.send_json({"error": "too long"}, 413)
             return
+        self.body_read = True
         try:
             body = json.loads(self.rfile.read(length).decode("utf-8"))
         except ValueError:
@@ -629,7 +647,7 @@ class Handler(BaseHTTPRequestHandler):
         if url.path == "/api/wizard/open":
             # Only the fixed programs in wizard.ACTIONS, so no page can make this server run anything else.
             try:
-                self.send_json(wizard.open_window(str(body.get("action") or "")))
+                self.send_json(wizard.start_action(str(body.get("action") or "")))
             except (ValueError, OSError) as exc:
                 self.send_json({"error": str(exc)}, 400)
             return

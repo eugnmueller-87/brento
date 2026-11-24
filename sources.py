@@ -631,7 +631,7 @@ def gh_status():
     """For the setup: is gh here, signed in, and allowed to read projects? Each answer with the command that fixes it."""
     gh = find_exe("gh")
     if not gh:
-        return {"ready": False, "reason": "GitHub CLI is not installed. Install it from https://cli.github.com/ and run: gh auth login"}
+        return {"ready": False, "reason": "The GitHub program is not installed yet."}
     try:
         run = subprocess.run([gh, "auth", "status"], capture_output=True, timeout=20, encoding="utf-8", errors="replace",
                              creationflags=NO_WINDOW)
@@ -639,13 +639,13 @@ def gh_status():
         return {"ready": False, "reason": "Could not ask gh: %s" % exc}
     text = (run.stdout or "") + (run.stderr or "")
     if run.returncode != 0 or "Logged in" not in text:
-        return {"ready": False, "reason": "gh is not signed in. Run: gh auth login"}
+        return {"ready": False, "reason": "GitHub is not signed in yet."}
     login = re.search(r"account (\S+)", text)
     scopes = re.search(r"Token scopes:\s*(.+)", text)
     found = {s.strip(" '\"") for s in scopes.group(1).split(",")} if scopes else set()
     if scopes and "project" not in found and "read:project" not in found:
         return {"ready": False, "login": login.group(1) if login else "",
-                "reason": "gh may not read projects yet. Run: gh auth refresh -s project"}
+                "reason": "GitHub does not let Brento read your boards yet."}
     return {"ready": True, "login": login.group(1) if login else "", "reason": ""}
 
 

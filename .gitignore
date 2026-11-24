@@ -2,4 +2,6 @@ __pycache__/
 *.pyc
 .env
 desktop/node_modules/
+dist/
+packaging/cache/
 node_modules/

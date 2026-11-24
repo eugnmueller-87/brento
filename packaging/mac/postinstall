@@ -1,0 +1,56 @@
+#!/bin/sh
+# Runs inside Apple's Installer, for the person installing. It unpacks Brento into that person's own Library and hands
+# over to install.sh, which sets up the start at login and the Brento app. No admin rights, and nothing outside the
+# home folder. An update goes the same way: the new copy is complete and tried out before the old one is touched.
+set -e
+HERE=$(cd "$(dirname "$0")" && pwd)
+
+if [ "$(id -u)" -eq 0 ]; then
+  # Started with admin rights all the same: go on as the person at the screen, never as root.
+  WHO=$(stat -f %Su /dev/console)
+  if [ "$WHO" = "root" ]; then
+    echo "Brento installs for the person at the screen, and nobody is signed in."
+    exit 1
+  fi
+  COPY=$(mktemp -d /private/tmp/brento.XXXXXX)
+  cp -R "$HERE/." "$COPY/"
+  chown -R "$WHO" "$COPY"
+  RC=0
+  launchctl asuser "$(id -u "$WHO")" sudo -u "$WHO" -H /bin/sh "$COPY/postinstall" || RC=$?
+  rm -rf "$COPY"
+  exit $RC
+fi
+
+BASE="$HOME/Library/Application Support/Brento"
+NEW="$HOME/Library/Application Support/Brento.new"
+OLD="$HOME/Library/Application Support/Brento.old"
+KEEP="$HOME/.brento"
+[ -d "$HOME/.leitstand" ] && KEEP="$HOME/.leitstand"
+
+# The chip of this Mac, also when this script itself runs translated.
+CHIP=x86_64
+[ "$(sysctl -n hw.optional.arm64 2>/dev/null || echo 0)" = "1" ] && CHIP=arm64
+echo "Brento for $CHIP, into $BASE"
+
+rm -rf "$NEW" "$OLD"
+mkdir -p "$NEW"
+tar -xzf "$HERE/brento.tar.gz" -C "$NEW"
+tar -xzf "$HERE/runtime-$CHIP.tar.gz" -C "$NEW"
+
+# Tried out before anything else changes: if this Mac cannot run it, the installation stops here and says so.
+"$NEW/python/bin/Brento" -c 'import http.server, json, ssl, sys, zipfile; print("Python", sys.version.split()[0])'
+"$NEW/app/bin/gh" --version | head -n 1
+
+# A team's own setup file stays, unless the new version brings one.
+for TEAM in "$BASE/app/team.json" "$KEEP/team.json"; do
+  if [ -f "$TEAM" ] && [ ! -f "$NEW/app/team.json" ]; then cp -p "$TEAM" "$NEW/app/team.json"; fi
+done
+
+if [ -x "$BASE/python/bin/Brento" ] && [ -f "$BASE/app/launcher.py" ]; then
+  "$BASE/python/bin/Brento" "$BASE/app/launcher.py" --stop || true
+fi
+if [ -d "$BASE" ]; then mv "$BASE" "$OLD"; fi
+mv "$NEW" "$BASE"
+rm -rf "$OLD"
+
+BRENTO_PACKAGED=1 BRENTO_PYTHON="$BASE/python/bin/Brento" /bin/sh "$BASE/app/install.sh"

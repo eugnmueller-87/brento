@@ -1,8 +1,8 @@
 """What the first-start wizard needs: guesses, checks, and the few things it does on the owner's click.
 
 It guesses what it can (name, vault, board fields), so the owner mostly clicks Next. Where something has to
-happen outside Brento (install the GitHub CLI, sign in), it opens the official program in its own window,
-with a fixed command, and the page checks again until it is done. Nothing here runs without a click.
+happen outside Brento (fetch the GitHub program, sign in), it runs the official program without any window, with a
+fixed command, and the page shows what to do and checks again until it is done. Nothing here runs without a click.
 """
 import getpass
 import hashlib
@@ -11,11 +11,11 @@ import json
 import os
 import platform
 import re
-import shlex
 import subprocess
 import sys
 import tarfile
 import threading
+import time
 import urllib.request
 import zipfile
 from pathlib import Path
@@ -36,15 +36,19 @@ DUE_NAMES = ("due", "due date", "deadline", "frist", "target date", "date", "end
 DONE_NAMES = ("done", "done date", "completed", "erledigt am", "closed")
 # Programs the wizard may start, each with fixed arguments. "{gh}" and "{claude}" become the program's full path.
 ACTIONS = {
-    "gh-install": ["{winget}", "install", "--id", "GitHub.cli", "-e", "--source", "winget",
-                   "--accept-package-agreements", "--accept-source-agreements"],
-    "gh-login": ["{gh}", "auth", "login", "--web", "--clipboard", "--git-protocol", "https", "-s", "project"],
-    "gh-scope": ["{gh}", "auth", "refresh", "-s", "project"],
+    "gh-install": [],
+    "gh-login": ["{gh}", "auth", "login", "--hostname", "github.com", "--web", "--git-protocol", "https", "-s", "project"],
+    "gh-scope": ["{gh}", "auth", "refresh", "--hostname", "github.com", "-s", "project"],
     "claude-login": ["{claude}", "auth", "login"],
 }
 NO_WINDOW = sources.NO_WINDOW
-# On a Mac or Linux there is no winget. Brento fetches the official GitHub CLI from its own GitHub releases instead,
-# checks it against the release's checksum list, and keeps the one program in its folder. No admin rights.
+# GitHub's program prints a one-time code, and the owner types it on GitHub's own page. The code is the only thing
+# Brento reads off a sign-in: the logins themselves stay inside the two programs.
+GH_CODE = re.compile(r"\b([A-Z0-9]{4}-[A-Z0-9]{4})\b")
+GH_DEVICE = "https://github.com/login/device"
+SIGN_IN_LIMIT = 15 * 60
+# The installers bring the GitHub program along. Without it, Brento fetches the official one from its own GitHub
+# releases, checks it against the release's checksum list, and keeps the one program in its folder. No admin rights.
 GH_RELEASE = "https://api.github.com/repos/cli/cli/releases/latest"
 GH_HOSTS = ("api.github.com", "github.com")
 INSTALL = {"running": False, "error": "", "done": False}
@@ -63,9 +67,9 @@ def run(args, timeout=60):
 
 
 def gh_asset(names, system, machine):
-    """The release file for this computer: a zip on a Mac, a tar.gz on Linux. None where there is none."""
+    """The release file for this computer: a zip on a Mac or Windows, a tar.gz on Linux. None where there is none."""
     arch = {"x86_64": "amd64", "amd64": "amd64", "arm64": "arm64", "aarch64": "arm64"}.get((machine or "").lower())
-    tail = {"darwin": "_macOS_%s.zip", "linux": "_linux_%s.tar.gz"}.get(system)
+    tail = {"darwin": "_macOS_%s.zip", "win32": "_windows_%s.zip", "linux": "_linux_%s.tar.gz"}.get(system)
     if not arch or not tail:
         return None
     return next((n for n in names if n.startswith("gh_") and n.endswith(tail % arch)), None)
@@ -83,7 +87,7 @@ def extract_gh(data, name, target):
     """Takes only bin/gh out of the archive and writes it where Brento chose, never to a path the archive names."""
     if name.endswith(".zip"):
         with zipfile.ZipFile(io.BytesIO(data)) as archive:
-            member = next((m for m in archive.namelist() if m.endswith("/bin/gh")), None)
+            member = next((m for m in archive.namelist() if re.search(r"(^|/)bin/gh(\.exe)?$", m)), None)
             if not member:
                 raise ValueError("The download has no gh program in it.")
             body = archive.read(member)
@@ -126,7 +130,8 @@ def install_gh(fetch=fetch_https, system=None, machine=None, target=None):
         data = fetch(assets[name])
         if hashlib.sha256(data).hexdigest() != want:
             raise ValueError("The download did not match its checksum, so Brento did not install it.")
-        extract_gh(data, name, target or settings.home() / "bin" / "gh")
+        program = "gh.exe" if (system or settings.system()) == "win32" else "gh"
+        extract_gh(data, name, target or settings.home() / "bin" / program)
         INSTALL["done"] = True
     except (OSError, ValueError, KeyError, zipfile.BadZipFile, tarfile.TarError) as exc:
         text = str(exc)
@@ -174,7 +179,8 @@ def vault_stats(folder):
     except PermissionError:
         if settings.system() == "darwin":
             return {"notes": 0, "tasks": 0, "error": "macOS does not let Brento read this folder yet. Open System Settings, "
-                    "Privacy & Security, Full Disk Access, and switch on python3. Then choose the folder again."}
+                    "Privacy & Security, Full Disk Access, and switch on %s. Then choose the folder again."
+                    % (os.path.basename(sys.executable) or "python3")}
         return {"notes": 0, "tasks": 0, "error": "Brento may not read this folder."}
     tasks = len(sources.TaskIndex(root).scan())
     return {"notes": notes, "tasks": tasks, "error": ""}
@@ -270,42 +276,93 @@ def login():
     return (text or "").strip()
 
 
-def open_window(action):
-    """Starts one of the fixed programs in a window the owner can see, and returns at once.
-    On macOS and Linux it returns the command instead, for the owner to run in a terminal."""
+class SignIn:
+    """One sign-in at a time, without a window. A new click ends the old one, so a code that ran out gives way to a
+    fresh one. GitHub's program is read for its one-time code; Claude's program is not read at all."""
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.proc, self.action, self.code, self.error = None, "", "", ""
+
+    def view(self):
+        with self.lock:
+            return {"action": self.action, "running": self.proc is not None, "code": self.code, "url": GH_DEVICE,
+                    "error": self.error}
+
+    def start(self, action, args):
+        github = action.startswith("gh")
+        with self.lock:
+            if self.proc is not None:
+                self.proc.kill()
+            proc = subprocess.Popen(args, stdin=subprocess.DEVNULL, creationflags=NO_WINDOW,
+                                    stdout=subprocess.PIPE if github else subprocess.DEVNULL,
+                                    stderr=subprocess.STDOUT if github else subprocess.DEVNULL,
+                                    env=dict(os.environ, GH_PROMPT_DISABLED="1", NO_COLOR="1"))
+            self.proc, self.action, self.code, self.error = proc, action, "", ""
+        threading.Thread(target=self._watch, args=(proc,), daemon=True).start()
+
+    def _watch(self, proc):
+        timer = threading.Timer(SIGN_IN_LIMIT, proc.kill)
+        timer.daemon = True
+        timer.start()
+        last = ""
+        for raw in proc.stdout or ():
+            line = raw.decode("utf-8", "replace").strip()
+            last = line or last
+            found = GH_CODE.search(line) if "code" in line.lower() else None
+            with self.lock:
+                if found and self.proc is proc:
+                    self.code = found.group(1)
+        if proc.stdout:
+            proc.stdout.close()
+        result = proc.wait()
+        timer.cancel()
+        with self.lock:
+            # A newer click already took over: its own watcher speaks for it.
+            if self.proc is not proc:
+                return
+            self.proc, self.code = None, ""
+            self.error = "" if result == 0 else self.explain(last)
+
+    @staticmethod
+    def explain(last):
+        low = last.lower()
+        if "expired" in low or not last:
+            return "The sign-in ran out of time. Click the button to start again."
+        if "denied" in low:
+            return "The sign-in was cancelled. Click the button to start again."
+        return "The sign-in did not work: %s" % GH_CODE.sub("the code", last)[:200]
+
+
+SIGNIN = SignIn()
+
+
+def start_action(action, wait=5.0):
+    """Starts one of the fixed programs without a window and returns at once. A GitHub sign-in waits a moment for its
+    one-time code, so the page usually has it with the first answer."""
     if action not in ACTIONS:
         raise ValueError("Unknown action.")
-    if action == "gh-install" and settings.system() != "win32":
-        # No window needed: the download runs here, and the page asks every few seconds until gh is found.
+    if action == "gh-install":
+        # The download runs here, and the page asks every few seconds until gh is found.
         if not INSTALL["running"]:
+            INSTALL.update(running=True, error="", done=False)
             threading.Thread(target=install_gh, daemon=True).start()
-        return {"opened": True, "command": "download from github.com/cli/cli"}
-    needs = {"{gh}": "gh", "{claude}": "claude", "{winget}": "winget"}
+        return {"started": True, "signin": SIGNIN.view()}
+    needs = {"{gh}": "gh", "{claude}": "claude"}
+    names = {"gh": "The GitHub program", "claude": "Claude Code"}
     args = []
     for part in ACTIONS[action]:
         if part in needs:
             exe = settings.find_exe(needs[part])
             if not exe:
-                names = {"gh": "GitHub CLI", "claude": "Claude Code", "winget": "winget (App Installer)"}
                 raise ValueError("%s is not installed on this computer." % names[needs[part]])
             args.append(exe)
         else:
             args.append(part)
-    shown = " ".join(a if " " not in a else '"%s"' % a for a in [needs.get(ACTIONS[action][0], args[0])] + args[1:])
-    if settings.system() == "darwin":
-        # A small script in Brento's folder, opened by Terminal. Made here, so macOS has nothing to block.
-        script = settings.home() / ("run-%s.command" % action)
-        script.parent.mkdir(parents=True, exist_ok=True)
-        script.write_text("#!/bin/sh\n# Started by Brento's setup. Safe to delete.\n%s\necho\n"
-                          "echo 'Done. Close this window and go back to Brento.'\n" % " ".join(shlex.quote(a) for a in args),
-                          encoding="utf-8")
-        script.chmod(0o700)
-        subprocess.Popen(["open", "-a", "Terminal", str(script)])
-        return {"opened": True, "command": shown}
-    if settings.system() != "win32":
-        return {"opened": False, "command": shown}
-    startup = subprocess.STARTUPINFO()
-    startup.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-    startup.wShowWindow = 1
-    subprocess.Popen(args, creationflags=subprocess.CREATE_NEW_CONSOLE, startupinfo=startup)
-    return {"opened": True, "command": shown}
+    SIGNIN.start(action, args)
+    ends = time.monotonic() + (wait if action.startswith("gh") else 0)
+    view = SIGNIN.view()
+    while view["running"] and not view["code"] and time.monotonic() < ends:
+        time.sleep(0.1)
+        view = SIGNIN.view()
+    return {"started": True, "signin": view}

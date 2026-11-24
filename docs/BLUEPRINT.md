@@ -22,7 +22,8 @@ age of its source, and the page draws them.
 | `server.py` | Local web server on 127.0.0.1:8770. Serves the page and the JSON API; refuses foreign hosts and cross-site posts |
 | `settings.py` | The owner's settings (`~/.brento/brento.json`), the list of sources, the team file (`team.json`) |
 | `sources.py` | One reader per source, and the rules that rank cards for Home, Today and the schedule check |
-| `wizard.py` | The first-start wizard's guesses and its few actions: create a board, open a sign-in window, on a Mac download the GitHub CLI |
+| `wizard.py` | The first-start wizard's guesses and its few actions: create a board, run a sign-in without a window, fetch the GitHub program where the installer did not bring it |
+| `launcher.py` | Starts, stops and opens Brento without a window. Every shortcut the installers make points here |
 | `phone.py` | The phone door on port 8771: pairing codes, device tokens (only their hashes are saved), the routes a phone may use |
 | `slack_notify.py` | Morning summary, new-card note and meeting reminder through an incoming webhook |
 | `calendar_feed.py` | Reads a private iCal link; the link never goes back to a page |
@@ -30,7 +31,8 @@ age of its source, and the page draws them.
 | `tools.py` | The dock: the only list the owner edits inside Brento |
 | `tools.catalog.json` | The apps the wizard offers for the dock |
 | `web/` | The page: `app.js` (all pages), `art.js` (drawn pictures), `style.css`, `photos/` |
-| `install.ps1`, `install.sh` | The installers behind *Install Brento* (Windows) and *Install Brento.command* (Mac) |
+| `packaging/` | Builds the two installers: `build.py`, the pinned downloads in `runtimes.json`, `mac/`, `windows/`, and the check that runs after an install |
+| `install.sh`, `install.ps1` | Sets up the start at login and the app on a Mac (the Mac installer runs it too) or Linux; the same for a copy of the source code on Windows |
 | `tests/` | `python -m unittest discover -s tests`; GitHub runs them on every push |
 
 ## Add a source

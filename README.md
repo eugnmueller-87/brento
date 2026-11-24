@@ -16,36 +16,50 @@ and build your own.
 
 ---
 
-## Install (Windows)
+## Install
 
-1. Download the [latest version](https://github.com/eugnmueller-87/brento/releases/latest) (**Source code (zip)**)
-   and unpack it where it can stay.
-2. Double-click **Install Brento**.
+| Your computer | One file |
+|---|---|
+| **Mac** (macOS 11 or newer, Apple chip or Intel) | [**Download Brento-Mac.pkg**](https://github.com/eugnmueller-87/brento/releases/latest/download/Brento-Mac.pkg) |
+| **Windows** 10 or 11 | [**Download Brento-Windows.exe**](https://github.com/eugnmueller-87/brento/releases/latest/download/Brento-Windows.exe) |
 
-That is all. The installer finds Python or installs it for you (no admin rights), puts **Brento** in the Start menu,
-starts it whenever you sign in, and opens the setup wizard.
+Open the file and click through. Then Brento opens in your browser and asks one question per page, and you can skip
+every one of them. The file brings everything along: no Terminal, no Python, no GitHub program to install, no
+administrator password. Brento starts when you log in, and you open it like any other app.
 
-## Install (Mac)
+### The first time on a Mac
 
-1. Download the [latest version](https://github.com/eugnmueller-87/brento/releases/latest) (**Source code (zip)**)
-   and open the ZIP where it can stay.
-2. Double-click **Install Brento.command**.
+macOS stops programs from the internet that Apple has not checked. Brento has no paid Apple certificate, so you allow
+it once ([Apple's own description](https://support.apple.com/guide/mac-help/open-a-mac-app-from-an-unidentified-developer-mh40616/mac)):
 
-The installer finds Python. If the Mac has none, macOS offers Apple's free command line tools in one click; after
-that, double-click again. Brento then starts at every login, **Brento** appears in Spotlight and Launchpad, and the
-setup wizard opens. In Safari, **File, Add to Dock** keeps it in the Dock.
+1. Open **Brento-Mac.pkg**. macOS says it could not check the file. Click **Done**.
+2. Open **System Settings**, then **Privacy & Security**, and scroll down. Next to *Brento-Mac.pkg* click
+   **Open Anyway**, and confirm. The button is there for about an hour.
+3. The installer opens: **Continue**, **Install**. That is all.
 
-If macOS refuses the downloaded file, open System Settings, Privacy & Security, and click **Open Anyway**. Or open
-Terminal, type `sh ` (with a space), drag `install.sh` from the folder into the window, and press Return.
+### The first time on Windows
 
-To take it out again: `sh install.sh --remove`. **Linux:** `sh install.sh` adds a `brento` command and opens the wizard.
+1. Open **Brento-Windows.exe**. If the browser asks whether to keep the file, keep it.
+2. If Windows says it protected your PC, click **More info**, then **Run anyway**.
+3. The installer opens: **Next**, **Install**, **Finish**.
 
-## Updating
+Some newer PCs have **Smart App Control** switched on. Windows then blocks every unknown program without a certificate,
+and [offers no exception for a single one](https://support.microsoft.com/topic/285ea03d-fa88-4d56-882e-6698afdb7003).
+Brento does not have that certificate yet, so it cannot be installed on such a PC.
 
-Download the new version the same way, unpack it next to the old one, and double-click the installer in the new
-folder. Brento restarts from there and keeps your setup, which lives in your home folder (`.brento`), not in the
-program folder. Then delete the old folder. What changed, and any step an update needs, is in
-[CHANGELOG.md](CHANGELOG.md).
+### Updating and removing
+
+**Update:** download the new file and open it. Your setup stays, because it lives in your home folder (`.brento`).
+What changed is in [CHANGELOG.md](CHANGELOG.md).
+
+**Remove:** on a Mac, open **Uninstall Brento** (press Cmd and Space and type it). On Windows, **Settings, Apps**, Brento,
+**Uninstall**. Your notes, board and calendar stay as they are.
+
+### Linux, or from the source code
+
+Linux: `sh install.sh` adds a `brento` command and opens the wizard, `sh install.sh --remove` takes it out again. On a
+Mac, the same script runs Brento with the Mac's own Python. On Windows, *Install Brento.cmd* does that. How the two
+installers are built: [packaging/build.py](packaging/build.py).
 
 ## On your phone (iPhone, iPad, Android)
 
@@ -68,7 +82,7 @@ One question per screen, most answers already filled in, a button for everything
 |---|---|
 | Welcome | Check your first name (taken from GitHub or git) |
 | Notes | Your Obsidian vault is already chosen. Brento shows how many notes and dated tasks it found |
-| Board | *Install it for me* and *Sign in to GitHub* if needed, then click your board, or *Create a new board for me*. On a Mac the GitHub program is downloaded from github.com and checked before it is kept |
+| Board | *Sign in to GitHub* shows a one-time code and a button that copies it and opens GitHub. Then click your board, or *Create a new board for me* |
 | Calendar | Pick Google, Outlook or Apple, follow four short steps, paste the private link. Brento checks it at once |
 | Slack (optional) | *Create the Brento app* opens Slack with everything filled in. Add a webhook, paste it, a test message arrives |
 | Apps | The apps for your dock, already ticked from what you connected |
@@ -82,9 +96,10 @@ Everyone runs their own Brento with their own notes and calendar, and the team s
 1. **The team lead** clicks **Use this template** on GitHub to get the team's own copy, installs it, and in the
    wizard picks **Create a team board in *your organization***. On the last screen: **Save as team setup**. That
    writes `team.json` (board, field names, apps, calendar kind, Slack timing; nothing personal, no secrets).
-   Commit and push it.
-2. **Everyone else** downloads the team's copy and double-clicks **Install Brento**. The wizard already knows the
-   board, the apps and the settings; they confirm and connect their own calendar.
+   Commit it to the team's copy and [make a release](docs/RELEASING.md): the installers built there carry the team's
+   setup.
+2. **Everyone else** downloads the installer from the team's own Releases page. The wizard already knows the board, the
+   apps and the settings; they confirm and connect their own calendar.
 
 On a team board, each person's home screen shows the cards assigned to them and the cards nobody has taken yet.
 The board page shows everyone's cards with their names. A template for the team file is in `team.example.json`.
@@ -106,6 +121,7 @@ time, a task or card whose date has passed, an urgent card without a date.
 
 - **Local and read-only.** Brento never changes a note, a card or an appointment. It writes to its own folder
   (`~/.brento`), and creates a board or `team.json` only when you click the button for it.
+- **Nothing to type.** Installing, signing in, updating and removing work without a Terminal.
 - **Nothing to pay for.** No server, no database, no paid API. GitHub, the calendar link and the Slack webhook are free.
 - **Silence is not success.** A source that cannot be read shows *N/A*, never an empty, calm screen.
 - **The code decides what comes first, not a model.** Every card on Home says why it is there and how old its source is.
@@ -132,11 +148,10 @@ The Ask box is optional and can stay off.
 
 ## Status
 
-Version 0.1.0, see [CHANGELOG.md](CHANGELOG.md). Brento grew out of a dashboard its author uses every day on
-Windows. This first public version adds the installers, the setup wizard and the phone pairing. They pass the
-automated tests on every change, but none of them has been through a first install on someone else's computer
-yet, and the Mac installer and the phone pairing have not run on a real Mac or phone. If something fails, please
-open an issue.
+Version 0.2.0, see [CHANGELOG.md](CHANGELOG.md). Brento grew out of a dashboard its author uses every day on
+Windows. Before a version is published, both installers are installed, started, updated and removed on GitHub's
+Macs (Apple chip and Intel) and on Windows. What no automatic test covers: the security question macOS and Windows
+ask the first time, and the pairing of a real phone. If something fails, please open an issue.
 
 ## Credits and license
 

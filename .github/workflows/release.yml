@@ -1,12 +1,16 @@
-# A pushed tag like v0.2.0 becomes a release: tests first, then the changelog section as the release text.
+# A pushed tag like v0.2.0 becomes a release: unit tests, both installers built, each of them installed, started,
+# updated and removed on real Macs and on Windows, and only when all of that worked, published.
+# "Run workflow" by hand, or a push to a branch called try/something, does everything except the publishing.
 name: release
 on:
   push:
     tags: ["v*"]
+    branches: ["try/**"]
+  workflow_dispatch:
 permissions:
-  contents: write
+  contents: read
 jobs:
-  release:
+  test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -16,13 +20,187 @@ jobs:
       - name: Unit tests
         run: python -m unittest discover -s tests
       - name: The tag matches VERSION
+        if: startsWith(github.ref, 'refs/tags/v')
         run: test "v$(tr -d '[:space:]' < VERSION)" = "$GITHUB_REF_NAME"
       - name: Release text from the changelog
         run: |
-          v="${GITHUB_REF_NAME#v}"
-          awk -v head="## $v " 'index($0, head) == 1 {on = 1; next} /^## / {if (on) exit} on' CHANGELOG.md > notes.md
-          test -s notes.md || { echo "CHANGELOG.md has no section for $v"; exit 1; }
+          v="$(tr -d '[:space:]' < VERSION)"
+          awk -v head="## $v " 'index($0, head) == 1 {on = 1; next} /^## / {if (on) exit} on' CHANGELOG.md > changes.md
+          test -s changes.md || { echo "CHANGELOG.md has no section for $v"; exit 1; }
+          {
+            echo "**Mac:** download **Brento-Mac.pkg** and open it. **Windows:** download **Brento-Windows.exe** and open it."
+            echo
+            echo "The first time, your computer asks whether you trust the file. [These are the clicks](https://github.com/$GITHUB_REPOSITORY#install)."
+            echo "You do not need the two source code files."
+            echo
+            cat changes.md
+          } > notes.md
+      - uses: actions/upload-artifact@v4
+        with:
+          name: notes
+          path: notes.md
+
+  build-mac:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: python packaging/build.py mac
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mac
+          path: dist/Brento-Mac.pkg
+          compression-level: 0
+
+  build-windows:
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Inno Setup 6.7.3, checked against its published checksum
+        shell: pwsh
+        run: |
+          Invoke-WebRequest https://github.com/jrsoftware/issrc/releases/download/is-6_7_3/innosetup-6.7.3.exe -OutFile inno.exe
+          $sum = (Get-FileHash inno.exe -Algorithm SHA256).Hash.ToLower()
+          if ($sum -ne '9c73c3bae7ed48d44112a0f48e66742c00090bdb5bef71d9d3c056c66e97b732') { throw "Inno Setup differs: $sum" }
+          Start-Process .\inno.exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/CURRENTUSER',"/DIR=$env:RUNNER_TEMP\inno" -Wait
+      - shell: pwsh
+        run: python packaging/build.py windows --iscc "$env:RUNNER_TEMP\inno\ISCC.exe"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: dist/Brento-Windows.exe
+          compression-level: 0
+
+  try-mac:
+    needs: build-mac
+    strategy:
+      fail-fast: false
+      matrix:
+        # An Apple chip and an Intel Mac.
+        os: [macos-15, macos-15-intel]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: mac
+      - name: Unit tests on this Mac
+        run: python3 -m unittest discover -s tests
+      - name: Install, as the person at the screen
+        run: |
+          uname -m; sw_vers -productVersion
+          installer -pkg Brento-Mac.pkg -target CurrentUserHomeDirectory -verboseR
+          python3 packaging/check_install.py up
+      - name: Update by installing again
+        run: |
+          installer -pkg Brento-Mac.pkg -target CurrentUserHomeDirectory -verboseR
+          python3 packaging/check_install.py up
+      - name: A crash does not end Brento
+        run: |
+          pkill -9 -f "Application Support/Brento/app/server.py"
+          sleep 35
+          python3 packaging/check_install.py up
+      - name: Remove it the way the Uninstall app does
+        run: |
+          /bin/sh "$HOME/Library/Application Support/Brento/app/install.sh" --remove
+          python3 packaging/check_install.py down
+      - name: A picture of the installer
+        if: always()
+        continue-on-error: true
+        run: |
+          open Brento-Mac.pkg
+          sleep 12
+          screencapture -x installer-${{ matrix.os }}.png
+      - name: What went wrong, if something did
+        if: failure()
+        run: |
+          tail -n 60 /var/log/install.log || true
+          cat "$HOME/.brento/server.log" || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        continue-on-error: true
+        with:
+          name: picture-${{ matrix.os }}
+          path: installer-*.png
+          if-no-files-found: ignore
+
+  try-windows:
+    needs: build-windows
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows
+      - name: Unit tests on Windows
+        run: python -m unittest discover -s tests
+      - name: Install
+        run: |
+          $p = Start-Process .\Brento-Windows.exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/LOG=$pwd\install.log" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { Get-Content install.log -Tail 60; throw "the installer ended with $($p.ExitCode)" }
+          python packaging/check_install.py up
+      - name: Update by installing again
+        run: |
+          $p = Start-Process .\Brento-Windows.exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/LOG=$pwd\update.log" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { Get-Content update.log -Tail 60; throw "the installer ended with $($p.ExitCode)" }
+          python packaging/check_install.py up
+      - name: Remove it
+        run: |
+          Start-Process "$env:LOCALAPPDATA\Programs\Brento\unins000.exe" -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait
+          python packaging/check_install.py down
+      - name: A picture of the installer
+        if: always()
+        continue-on-error: true
+        run: |
+          $p = Start-Process .\Brento-Windows.exe -PassThru
+          Start-Sleep -Seconds 10
+          Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+          $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+          $i = New-Object System.Drawing.Bitmap $b.Width, $b.Height
+          [System.Drawing.Graphics]::FromImage($i).CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size)
+          $i.Save("$pwd\installer-windows.png")
+          Get-Process Brento-Windows* | Stop-Process -Force
+      - uses: actions/upload-artifact@v4
+        if: always()
+        continue-on-error: true
+        with:
+          name: picture-windows
+          path: installer-*.png
+          if-no-files-found: ignore
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [test, try-mac, try-windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: mac
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows
+      - uses: actions/download-artifact@v4
+        with:
+          name: notes
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" --title "Brento $GITHUB_REF_NAME" --notes-file notes.md --verify-tag
+        run: |
+          sha256sum Brento-Mac.pkg Brento-Windows.exe > SHA256SUMS.txt
+          gh release create "$GITHUB_REF_NAME" Brento-Mac.pkg Brento-Windows.exe SHA256SUMS.txt \
+            --repo "$GITHUB_REPOSITORY" --title "Brento $GITHUB_REF_NAME" --notes-file notes.md --verify-tag

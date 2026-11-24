@@ -119,9 +119,10 @@ class Fields(unittest.TestCase):
 
     def test_only_fixed_programs_can_be_opened(self):
         with self.assertRaises(ValueError):
-            wizard.open_window("rm -rf /")
-        for args in wizard.ACTIONS.values():
-            self.assertTrue(args[0].startswith("{") and args[0].endswith("}"))
+            wizard.start_action("rm -rf /")
+        for action, args in wizard.ACTIONS.items():
+            # The download is Brento's own code; every other action is one of the two known programs.
+            self.assertTrue(args[0] in ("{gh}", "{claude}") if args else action == "gh-install", action)
 
 
 class Links(unittest.TestCase):

@@ -1,0 +1,33 @@
+{
+  "about": "What the installers bring along, pinned by address and SHA-256. The checksums were compared with the ones the publishers list. A changed file stops the build.",
+  "python-mac-arm64": {
+    "version": "3.14.10",
+    "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261123/cpython-3.14.10%2B20261123-aarch64-apple-darwin-install_only_stripped.tar.gz",
+    "sha256": "f4b4683e628b86490baccd466d9fb9d4f1e73d57c96690634b6a1c0e91f3c5f7"
+  },
+  "python-mac-x86_64": {
+    "version": "3.14.10",
+    "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261123/cpython-3.14.10%2B20261123-x86_64-apple-darwin-install_only_stripped.tar.gz",
+    "sha256": "6441b7990a38e4050149da626ce263766bd11a6017779f45382820bbe91cb7b0"
+  },
+  "python-windows-x64": {
+    "version": "3.14.10",
+    "url": "https://www.python.org/ftp/python/3.14.10/python-3.14.10-embed-amd64.zip",
+    "sha256": "90905e64a840557d8c1bc4f5b74db3d7ee85e3ffb217611cac1c7813acea4159"
+  },
+  "gh-mac-arm64": {
+    "version": "2.105.0",
+    "url": "https://github.com/cli/cli/releases/download/v2.105.0/gh_2.105.0_macOS_arm64.zip",
+    "sha256": "2a5d03103ae444927383b93d9ffd65579a26e2eb900ce1cf11f55258d5319ded"
+  },
+  "gh-mac-x86_64": {
+    "version": "2.105.0",
+    "url": "https://github.com/cli/cli/releases/download/v2.105.0/gh_2.105.0_macOS_amd64.zip",
+    "sha256": "23602cbccbbdc6285a8520745b714cb927ce2ca621779373c2a20cd8e33fda66"
+  },
+  "gh-windows-x64": {
+    "version": "2.105.0",
+    "url": "https://github.com/cli/cli/releases/download/v2.105.0/gh_2.105.0_windows_amd64.zip",
+    "sha256": "8813a72c899900afaa10e3fec8fbc64b908c89dbfe837e95ed2fa500fc140627"
+  }
+}
