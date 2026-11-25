@@ -283,6 +283,8 @@ class Library:
         self.by_title, self.by_path, self.backlinks = {}, {}, {}
         self.stamp = 0.0
         self.lock = threading.Lock()
+        # Notes that lie only in a cloud are fetched in the background. When one last failed, and whether that is running.
+        self.failed, self.fetching = {}, False
 
     def _walk(self):
         before = set(settings.OLD_SKIP) <= sources.EXTRA_SKIP
@@ -341,6 +343,33 @@ class Library:
                         backlinks.setdefault(path, set()).add(rel)
             self.backlinks = backlinks
             self.stamp = time.time()
+            away = [rel for rel, note in notes.items() if note["away"]]
+            if away and not self.fetching:
+                self.fetching = True
+                threading.Thread(target=self._fetch, args=(away,), daemon=True).start()
+
+    def _fetch(self, away):
+        sources.cloud_files(True)
+        try:
+            self._fetch_some(away)
+        finally:
+            self.fetching = False
+
+    def _fetch_some(self, away):
+        ends = time.monotonic() + sources.FETCH_SECONDS
+        for rel in away:
+            if time.monotonic() > ends:
+                break
+            if time.time() - self.failed.get(rel, 0.0) < sources.RETRY_AFTER:
+                continue
+            try:
+                raw = (self.vault / rel).read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                self.failed[rel] = time.time()
+                continue
+            with self.lock:
+                if rel in self.notes:
+                    self.notes[rel] = dict(self._load(rel, raw, self.notes[rel]["mtime"]), away=False)
 
     def _load(self, rel, raw, mtime):
         props, body = split_frontmatter(raw)
@@ -391,6 +420,7 @@ class Library:
                     tags[tag] = tags.get(tag, 0) + 1
         entries.sort(key=lambda e: e["title"].lower())
         return {"sections": sections, "rootCount": counts.get("", 0), "notes": entries, "problem": sources.folder_problem(self.vault),
+                "away": sum(1 for note in self.notes.values() if note["away"]),
                 "tags": sorted(tags.items(), key=lambda kv: -kv[1])[:40]}
 
     def note(self, path):

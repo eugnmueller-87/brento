@@ -58,17 +58,19 @@ def walk(browser, pictures):
         browser.save_screenshot(str(pictures / ("setup-%d.png" % (n + 1))))
         if page == PAGES[0]:
             browser.execute_script("const i = document.querySelector('#wz-name'); i.value = arguments[0]; i.dispatchEvent(new Event('input'));", NAME)
+        if page == "Your notes":
+            click("[data-vault='']")
         if page == "Your calendar":
             # Away for a moment to copy the link, and back, while something else has changed: neither the page nor what
             # was typed may be gone.
             browser.execute_script("""
                 const real = window.fetch;
                 window.fetch = (url, options) => real(url, options).then(async (r) => String(url).includes('/api/state')
-                  ? new Response(JSON.stringify(Object.assign(await r.json(), { walk: Math.random() })), { status: 200 }) : r);
-                document.querySelector('#wz-cal').value = 'half typed'; document.dispatchEvent(new Event('visibilitychange'));""")
+                  ? new Response(JSON.stringify(Object.assign(await r.json(), { walk: Math.random() })), { status: r.status, headers: r.headers }) : r);
+                document.querySelector('#wz-cal').value = 'half-typed'; document.dispatchEvent(new Event('visibilitychange'));""")
             time.sleep(4)
             kept = browser.execute_script("const i = document.querySelector('#wz-cal'); return i ? i.value : '';")
-            check(heading() == page and kept == "half typed", "coming back to the setup keeps the page and what was typed")
+            check(heading() == page and kept == "half-typed", "coming back to the setup keeps the page and what was typed")
             # Next instead of Connect: the link is tried, and the reason is on the page.
             click("#wz-next")
             check(until(lambda: "https link" in browser.execute_script("return document.querySelector('#wz').innerText"), 20)
@@ -77,6 +79,7 @@ def walk(browser, pictures):
             click("#wz-skip") or click("#wz-next")
     time.sleep(10)
     check(heading() == PAGES[-1], "the last page stays")
+    check(not browser.execute_script("return window.brentoErrors"), "no script failed in the setup")
     browser.refresh()
     check(until(lambda: heading() == PAGES[-1], 30), "also after a reload")
     browser.execute_script("window.brentoErrors = []; addEventListener('error', (e) => brentoErrors.push(e.message));")

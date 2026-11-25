@@ -112,11 +112,14 @@ def shared():
             with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList") as listed:
                 names = [winreg.EnumKey(listed, n) for n in range(winreg.QueryInfoKey(listed)[0])]
             return sum(1 for name in names if re.match(r"^S-1-(?:5-21|12-1)-[\d-]+$", name)) != 1
-        people, first = {os.getuid()}, 500 if sys.platform == "darwin" else 1000
+        import pwd
+        first = 500 if sys.platform == "darwin" else 1000
         with os.scandir("/Users" if sys.platform == "darwin" else "/home") as homes:
-            people.update(uid for uid in (home.stat(follow_symlinks=False).st_uid for home in homes) if uid >= first)
-        return len(people) != 1
-    except OSError:
+            people = {uid for uid in (home.stat(follow_symlinks=False).st_uid for home in homes) if uid >= first}
+        # Accounts that can sign in, also those whose home folder lies elsewhere. The last numbers belong to "nobody".
+        people |= {p.pw_uid for p in pwd.getpwall() if first <= p.pw_uid < 60000 and not p.pw_shell.endswith(("nologin", "false"))}
+        return people != {os.getuid()}
+    except (ImportError, OSError):
         return True
 
 
@@ -202,17 +205,23 @@ class Browsers:
 
 def peer_uid(client, here):
     """Whose program sits at the other end of a connection on this computer. Linux says it, elsewhere it is None."""
-    def column(end):
-        return "%08X:%04X" % (struct.unpack("=I", socket.inet_aton(end[0]))[0], end[1])
-    try:
-        ends = column(client), column(here)
-        with open("/proc/net/tcp", encoding="ascii") as table:
-            for line in table:
-                row = line.split()
-                if len(row) > 7 and (row[1], row[2]) == ends:
-                    return int(row[7])
-    except (OSError, ValueError):
-        pass
+    if not sys.platform.startswith("linux"):
+        return None
+
+    def column(end, front):
+        return "%s%08X:%04X" % (front, struct.unpack("=I", socket.inet_aton(end[0]))[0], end[1])
+    # A program may come with an IPv6 socket to the same address. It then stands in the second list.
+    mapped = "0" * 16 + "%08X" % struct.unpack("=I", b"\0\0\xff\xff")[0]
+    for name, front in (("/proc/net/tcp", ""), ("/proc/net/tcp6", mapped)):
+        try:
+            ends = column(client, front), column(here, front)
+            with open(name, encoding="ascii") as table:
+                for line in table:
+                    row = line.split()
+                    if len(row) > 7 and (row[1], row[2]) == ends:
+                        return int(row[7])
+        except (OSError, ValueError):
+            pass
     return None
 
 

@@ -70,8 +70,13 @@ def plan(state, cfg, memory, now, name=""):
     seen = list(memory.get("seen") or [])
     keys = [card_key(a["id"]) for a in alerts]
     if not memory.get("seeded"):
-        # The first run only learns what is there, so connecting Slack does not flood the channel.
-        memory.update(seeded=True, seen=keys[-MAX_SEEN:])
+        # The first run only learns what is there, so connecting Slack does not flood the channel. While something is still
+        # being read it goes on learning, for an hour at most.
+        memory["seen"] = (seen + [k for k in keys if k not in seen])[-MAX_SEEN:]
+        since = memory.setdefault("learning", now.isoformat(timespec="minutes"))
+        if not unread(state, allowed) or now - datetime.fromisoformat(since) >= timedelta(hours=1):
+            memory.update(seeded=True)
+            memory.pop("learning")
     else:
         fresh = [a for a, k in zip(alerts, keys) if k not in seen]
         if cfg.get("alerts") and fresh:

@@ -63,7 +63,7 @@ def app_browser():
 PHOTO = re.compile(r"^/photos/((?:critical|high|medium|low|calm)-\d{2}\.webp|credits\.json)$")
 CSP = ("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
        "img-src 'self' data: https://www.google.com https://*.gstatic.com; "
-       "connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
+       "connect-src 'self'; frame-src 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
 # A generated page from the vault brings its own inline script and style, and may reach nothing else.
 # The sandbox takes Brento's own rights away from it: it cannot reach another Brento window either.
 CSP_PAGE = ("sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; "
@@ -150,7 +150,7 @@ class App:
             self.profile, self.vault, self.board, self.registry, self.library = profile, vault, board, registry, lib
             # What was read of the same folder is kept, so saving a setting does not start over.
             same = not first and self.tasks.vault == vault
-            self.tasks = sources.TaskIndex(vault, files=self.tasks.files if same else None)
+            self.tasks = sources.TaskIndex(vault, before=self.tasks if same else None)
             self.privacy_words = words
             self.state_cache, self.state_at = None, 0.0
         if settings.on(profile, "library"):
@@ -534,12 +534,13 @@ class Handler(BaseHTTPRequestHandler):
     def enter(self, body):
         """The launcher's ticket, or the key itself from another computer, for a word of this browser's own."""
         host = self.own_host()
-        uid = address.peer_uid(self.client_address, self.connection.getsockname())
-        # On Linux every account can read the ticket in the list of running programs, but there the computer also says
-        # whose program is asking.
-        if not host or (uid is not None and uid not in (0, os.getuid())):
-            self.not_let_in()
-        elif self.app.redeem(str(body.get("ticket") or "")) or same(str(body.get("key") or ""), self.app.key):
+        good = bool(host) and same(str(body.get("key") or ""), self.app.key)
+        if host and not good:
+            # On Linux every account can read the ticket in the list of running programs, but there the computer also says
+            # whose program brings it.
+            uid = address.peer_uid(self.client_address, self.connection.getsockname())
+            good = (uid is None or uid in (0, os.getuid())) and self.app.redeem(str(body.get("ticket") or ""))
+        if good:
             self.send_json(self.app.browsers.add(host, str(body.get("old") or "")))
         else:
             self.not_let_in()

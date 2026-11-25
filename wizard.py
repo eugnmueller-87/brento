@@ -183,7 +183,7 @@ def vault_stats(folder):
     notes = 0
     for base, dirs, files in os.walk(root):
         dirs[:] = [d for d in dirs if not sources.skipped(d)]
-        notes += sum(1 for name in files if name.endswith(".md"))
+        notes += sum(1 for name in files if name.endswith(".md") or sources.ICLOUD_STUB.match(name))
         if notes > 20000:
             break
     index = sources.TaskIndex(root)

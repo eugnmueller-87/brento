@@ -3,7 +3,7 @@
 What changed in each version, newest first. Every version is on the
 [Releases](https://github.com/eugnmueller-87/brento/releases) page, with its installers.
 
-## 0.2.0 (2026-11-24)
+## 0.2.0 (2026-11-25)
 
 One file to install, on Mac and Windows. **If you use 0.1.0, please update:** this version also closes four security
 holes, see *Safer*.
@@ -75,6 +75,7 @@ Known gaps:
 - The installers are not signed, so macOS and Windows ask whether you trust them, for each new version (the first page
   shows the clicks). On a PC with Smart App Control switched on, Windows blocks the installer.
 - Repeating appointments are left out.
+- On macOS 13, notes that lie only in iCloud are counted, not fetched.
 - The phone pairing has not been tried on a real phone.
 - The settings pages are made for a computer screen. On a phone they show a note instead.
 

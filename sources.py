@@ -61,7 +61,7 @@ def set_owner(name):
 
 
 # Folders that hold no notes of their own: programs, trash, copies. Those with a dot in front count as well.
-SKIP_DIRS = {"node_modules", "_private", "__pycache__"}
+SKIP_DIRS = {"node_modules", "_private", "__pycache__", "System Volume Information", "$RECYCLE.BIN"}
 # More folders the owner wants left out, from the settings.
 EXTRA_SKIP = set()
 
@@ -108,8 +108,41 @@ def cloud_files(fetch):
 
 def elsewhere(stat):
     """Whether a file lies only in a cloud, so that reading it can take long: macOS says it in the flags (dataless),
-    Windows in the attributes (recall on open, recall on data access)."""
-    return bool(getattr(stat, "st_flags", 0) & 0x40000000 or getattr(stat, "st_file_attributes", 0) & 0x00440000)
+    Windows in the attributes (recall on data access)."""
+    return bool(getattr(stat, "st_flags", 0) & 0x40000000 or getattr(stat, "st_file_attributes", 0) & 0x00400000)
+
+
+# Before macOS 14 iCloud put such a file in the place of a note that is not here: .Plan.md.icloud
+ICLOUD_STUB = re.compile(r"^\.(.+\.md)\.icloud$", re.I)
+FETCHING, FETCHING_LOCK = set(), threading.Lock()
+
+
+def fetch_later(path):
+    """Brings a file from its cloud in the background, so the next look finds it."""
+    path = str(path)
+    with FETCHING_LOCK:
+        if path in FETCHING:
+            return
+        FETCHING.add(path)
+
+    def work():
+        cloud_files(True)
+        try:
+            with open(path, "rb") as file:
+                file.read(1)
+        except OSError:
+            pass
+        with FETCHING_LOCK:
+            FETCHING.discard(path)
+    threading.Thread(target=work, daemon=True).start()
+
+
+def whole(path):
+    """A path Windows does not cut off at 260 characters."""
+    if os.name != "nt" or path.startswith("\\\\?\\"):
+        return path
+    path = os.path.abspath(path)
+    return "\\\\?\\UNC\\" + path[2:] if path.startswith("\\\\") else "\\\\?\\" + path
 
 
 DATE_RE = re.compile(r"(?<![\d.])(\d{1,2})\.(\d{1,2})(\.(\d{4}|\d{2})?)?(?!\d)")
@@ -263,8 +296,12 @@ def iso_date(value):
 
 
 def read(vault, rel):
+    path = Path(vault) / rel
     try:
-        return (Path(vault) / rel).read_text(encoding="utf-8", errors="replace").lstrip("﻿")
+        if elsewhere(path.stat()):
+            fetch_later(path)
+            return None
+        return path.read_text(encoding="utf-8", errors="replace").lstrip("﻿")
     except OSError:
         return None
 
@@ -509,32 +546,41 @@ class TaskIndex:
     reading happens in the background, because a note that lies only in a cloud can take a minute to open, and neither the
     page nor the icon may wait for it."""
 
-    def __init__(self, vault, ttl=60, files=None):
+    def __init__(self, vault, ttl=60, before=None):
         self.vault, self.ttl = Path(vault), ttl
         # note: (time of its last change, its task lines). A note that cannot be read keeps the lines it had.
-        self.files, self.walked = dict(files or {}), 0.0
+        self.files, self.walked = {}, 0.0
         # Notes and folders that could not be opened, and notes that lie only in a cloud. Both are tried again.
         self.unread, self.away = 0, 0
         self.problem, self.failed, self.worker = None, {}, None
-        self.lock = threading.Lock()
+        self.lock, self.ready, self.again = threading.Lock(), threading.Event(), False
+        if before is not None:
+            # The same folder under new settings. What is known of it goes on showing while it is looked through anew.
+            with before.lock:
+                self.files, self.walked = dict(before.files), before.walked
+                self.unread, self.away, self.again = before.unread, before.away, True
 
     def scan(self, today=None, wait=WAIT_FOR_NOTES):
         """The task lines as (note, line number, line). Raises OSError when the folder itself cannot be read, so the
         caller says N/A and never "no tasks", and StillReading while the first round is under way."""
         with self.lock:
-            due = not self.walked or time.time() - self.walked >= self.ttl
+            due = self.again or not self.walked or time.time() - self.walked >= self.ttl
             if due and self.worker is None:
-                self.worker = threading.Thread(target=self.work, daemon=True)
+                self.ready, self.again = threading.Event(), False
+                self.worker = threading.Thread(target=self.work, args=(self.ready,), daemon=True)
                 self.worker.start()
-            worker = self.worker
-        if due and worker:
-            worker.join(wait)
+            ready = self.ready
+        if due:
+            # Until what lies on this computer has been read. Fetching the rest goes on behind it.
+            ready.wait(wait)
         with self.lock:
             if self.problem:
                 raise self.problem
             if not self.walked:
                 raise StillReading()
-            return [(rel, n, line) for rel, hit in self.files.items() for n, line in hit[1]]
+            # The privacy list and the folders to leave out can have changed since a note was read.
+            return [(rel, n, line) for rel, hit in self.files.items() if hit[1] and not PRIVATE.search(rel)
+                    and not any(skipped(part) for part in rel.split("/")[:-1]) for n, line in hit[1]]
 
     def trouble(self):
         """What is missing from the last round, in plain words, or ''."""
@@ -545,7 +591,7 @@ class TaskIndex:
             out.append("%d note%s could not be read" % (self.unread, "" if self.unread == 1 else "s"))
         return ", ".join(out)
 
-    def work(self):
+    def work(self, ready):
         cloud_files(True)
         problem = None
         try:
@@ -556,31 +602,43 @@ class TaskIndex:
             problem = OSError(type(exc).__name__)
         with self.lock:
             self.problem, self.worker = problem, None
+        ready.set()
 
     def round(self):
+        root = whole(str(self.vault))
         # Raises when the folder is gone or locked. Walking through it would say nothing about that.
-        os.listdir(str(self.vault))
-        seen, unread, away, closed = {}, 0, [], []
+        os.listdir(root)
+        with self.lock:
+            self.problem = None
+        seen, unread, away, stubs, closed = {}, 0, [], 0, []
 
         def shut(exc):
             # Windows keeps a few signposts to other folders that nobody may list, such as My Music in Documents.
             if not isinstance(exc, FileNotFoundError) and not getattr(os.path, "isjunction", lambda path: False)(exc.filename):
                 closed.append(str(exc.filename))
-        for folder, dirs, files in os.walk(str(self.vault), onerror=shut):
+        for folder, dirs, files in os.walk(root, onerror=shut):
             dirs[:] = [d for d in dirs if not skipped(d) and not PRIVATE.search(d)]
+            base = folder[len(root):].replace(os.sep, "/").strip("/")
             for name in files:
+                stub = ICLOUD_STUB.match(name)
+                name = stub.group(1) if stub else name
                 if not name.endswith(".md") or PRIVATE.search(name):
                     continue
-                full = Path(folder) / name
-                rel = full.relative_to(self.vault).as_posix()
+                full = os.path.join(folder, name)
+                rel = base + "/" + name if base else name
                 hit = self.files.get(rel)
                 try:
-                    stat = full.stat()
+                    stat = None if stub else os.stat(full)
                 except FileNotFoundError:
                     continue
                 except OSError:
                     unread += 1
                 else:
+                    if stub:
+                        stubs += 1
+                        if hit:
+                            seen[rel] = hit
+                        continue
                     if not hit or hit[0] != stat.st_mtime:
                         if elsewhere(stat):
                             away.append((rel, full, stat))
@@ -593,10 +651,11 @@ class TaskIndex:
                     seen[rel] = hit
         for path in closed:
             unread += 1
-            under = os.path.relpath(path, str(self.vault)).replace(os.sep, "/") + "/"
+            under = path[len(root):].replace(os.sep, "/").strip("/") + "/"
             seen.update({rel: hit for rel, hit in self.files.items() if rel.startswith(under)})
         with self.lock:
-            self.files, self.walked, self.unread, self.away = seen, time.time(), unread, len(away)
+            self.files, self.walked, self.unread, self.away = seen, time.time(), unread, len(away) + stubs
+        self.ready.set()
         # What is here has been read. Now the notes a cloud has to bring first, one by one and not for ever.
         still = {rel for rel, _, _ in away}
         self.failed = {rel: when for rel, when in self.failed.items() if rel in still}
@@ -619,7 +678,8 @@ class TaskIndex:
 def task_lines(full, size):
     if size > TASK_FILE_LIMIT:
         return []
-    text = full.read_text(encoding="utf-8", errors="replace")
+    with open(full, encoding="utf-8", errors="replace") as file:
+        text = file.read()
     # Cheap first test: a file without a checkbox has no task.
     if "[ ]" not in text and "[/]" not in text:
         return []

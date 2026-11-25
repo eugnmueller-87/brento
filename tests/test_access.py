@@ -140,11 +140,9 @@ class Door(Home):
 
     def test_whether_others_have_an_account_here(self):
         self.assertIn(address.shared(), (True, False))
+        # When it cannot be told, yes.
         with mock.patch.object(address.os, "scandir", side_effect=OSError), mock.patch.dict(sys.modules, {"winreg": None}):
-            try:
-                self.assertTrue(address.shared())
-            except ImportError:
-                self.assertEqual(sys.platform, "win32")
+            self.assertTrue(address.shared())
 
     def test_the_answer_shows_that_it_comes_from_brento(self):
         word = self.let_in()
@@ -174,12 +172,23 @@ class Door(Home):
         # And on Linux not from a program of another account. The ticket is still good after that.
         with mock.patch.object(address, "peer_uid", return_value=4711), mock.patch.object(server.os, "getuid", return_value=1000, create=True):
             self.assertEqual(self.call("POST", "/api/enter", ticket, X_Leitstand="1")[0], 401)
+            # The owner's key opens whichever program brings it: nobody else can read that.
+            self.assertEqual(self.call("POST", "/api/enter", json.dumps({"key": self.app.key}), X_Leitstand="1")[0], 200)
         self.assertEqual(self.call("POST", "/api/enter", ticket, X_Leitstand="1")[0], 200)
 
     @unittest.skipUnless(sys.platform.startswith("linux"), "only Linux says whose program is at the other end")
     def test_linux_says_whose_program_is_asking(self):
         with socket.create_connection(("127.0.0.1", self.port), timeout=10) as conn:
             self.assertEqual(address.peer_uid(conn.getsockname(), conn.getpeername()), os.getuid())
+        # Also when it comes with an IPv6 socket to the same address.
+        try:
+            six = socket.socket(socket.AF_INET6)
+            six.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
+            six.connect(("::ffff:127.0.0.1", self.port))
+        except OSError:
+            self.skipTest("no IPv6 here")
+        with six:
+            self.assertEqual(address.peer_uid(("127.0.0.1", six.getsockname()[1]), ("127.0.0.1", self.port)), os.getuid())
         self.assertIsNone(address.peer_uid(("127.0.0.1", 1), ("127.0.0.1", 2)))
 
     def test_a_signature_is_good_for_one_request_to_one_address(self):
@@ -605,8 +614,8 @@ class Reading(unittest.TestCase):
             real = sources.task_lines
 
             def lines(full, size):
-                if full.name == "away.md":
-                    fetched.append(full.name)
+                if os.path.basename(full) == "away.md":
+                    fetched.append("away.md")
                     if not go.wait(20):
                         raise OSError("the cloud does not deliver")
                 return real(full, size)
@@ -656,6 +665,82 @@ class Reading(unittest.TestCase):
             self.assertEqual((len(data["items"]), src["state"], src["note"]), (1, "unknown", "1 note could not be read"))
             self.assertEqual(sources.read_tasks(index, today)[1]["state"], "fresh")
 
+    def test_a_note_that_macos_13_put_into_icloud_is_counted(self):
+        today = calendar_feed.date(2026, 11, 24)
+        with tempfile.TemporaryDirectory() as tmp:
+            note = Path(tmp) / "Plan.md"
+            note.write_text("- [ ] Send the offer \U0001f4c5 2099-01-02\n", encoding="utf-8")
+            index = sources.TaskIndex(Path(tmp), ttl=0)
+            self.assertEqual(sources.read_tasks(index, today)[1]["state"], "fresh")
+            note.rename(Path(tmp) / ".Plan.md.icloud")
+            data, src = sources.read_tasks(index, today)
+            self.assertEqual((len(data["items"]), src["state"], src["note"]), (1, "unknown", "1 note is not on this computer yet"))
+
+    def test_a_folder_that_came_back_is_not_called_lost_while_it_is_read(self):
+        today = calendar_feed.date(2026, 11, 24)
+        with tempfile.TemporaryDirectory() as tmp:
+            vault = Path(tmp) / "vault"
+            index = sources.TaskIndex(vault, ttl=0)
+            self.assertEqual(sources.read_tasks(index, today)[1]["note"], "the notes folder is not there")
+            vault.mkdir()
+            (vault / "a.md").write_text("- [ ] Slow \U0001f4c5 2099-01-02\n", encoding="utf-8")
+            go, real = threading.Event(), sources.task_lines
+            with mock.patch.object(sources, "task_lines", side_effect=lambda *a: go.wait(20) and real(*a)):
+                self.assertEqual(index_read(index, today, 0.3)[1]["note"], "still loading")
+                go.set()
+                self.assertEqual(index_read(index, today, 10)[1]["state"], "fresh")
+
+    def test_saving_a_setting_neither_hides_the_tasks_nor_shows_what_is_private_now(self):
+        today = calendar_feed.date(2026, 11, 24)
+        with tempfile.TemporaryDirectory() as tmp:
+            for name in ("Work", "Other"):
+                (Path(tmp) / name).mkdir()
+                (Path(tmp) / name / "a.md").write_text("- [ ] In %s \U0001f4c5 2099-01-02\n" % name, encoding="utf-8")
+            before = sources.TaskIndex(Path(tmp))
+            self.assertEqual(len(sources.read_tasks(before, today)[0]["items"]), 2)
+            sources.set_skip(["Other"])
+            self.addCleanup(sources.set_skip, [])
+            index, go = sources.TaskIndex(Path(tmp), before=before), threading.Event()
+            real = sources.os.listdir
+            with mock.patch.object(sources.os, "listdir", side_effect=lambda p: go.wait(20) and real(p)):
+                data, src = index_read(index, today, 0.2)
+                self.assertEqual(([t["title"] for t in data["items"]], src["state"]), (["In Work"], "fresh"))
+                go.set()
+                index.ready.wait(10)
+            self.assertEqual([t["title"] for t in sources.read_tasks(index, today)[0]["items"]], ["In Work"])
+
+    @unittest.skipUnless(os.name == "nt", "only Windows cuts paths off")
+    def test_a_path_windows_cuts_off_is_read_all_the_same(self):
+        today = calendar_feed.date(2026, 11, 24)
+        with tempfile.TemporaryDirectory() as tmp:
+            deep = sources.whole(tmp)
+            for _ in range(6):
+                deep = os.path.join(deep, "a folder with a rather long name, as people give them")
+                os.mkdir(deep)
+            with open(os.path.join(deep, "note.md"), "w", encoding="utf-8") as out:
+                out.write("- [ ] Far down \U0001f4c5 2099-01-02\n")
+            data, src = sources.read_tasks(sources.TaskIndex(Path(tmp)), today)
+            self.assertEqual(([t["title"] for t in data["items"]], src["state"]), (["Far down"], "fresh"))
+            self.assertTrue(data["items"][0]["path"].startswith("a folder with a rather long name"))
+            shutil.rmtree(sources.whole(tmp), ignore_errors=True)
+            os.makedirs(tmp, exist_ok=True)
+
+    def test_slack_learns_until_everything_has_been_read(self):
+        when = calendar_feed.datetime
+        cfg = {"digest": "", "alerts": True, "remind": 0, "sources": ["tasks"]}
+
+        def state(ids, note):
+            return {"sources": [{"id": "tasks", "label": "Obsidian tasks", "state": "unknown" if note else "fresh", "note": note}], "events": [],
+                    "alerts": [{"id": i, "title": i, "source": "Obsidian tasks", "eyebrow": "", "why": ""} for i in ids]}
+        texts, memory = slack_notify.plan(state(["a"], "9 notes are not on this computer yet"), cfg, {}, when(2026, 11, 24, 10, 0))
+        self.assertEqual((texts, memory.get("seeded")), ([], None))
+        texts, memory = slack_notify.plan(state(["a", "b"], ""), cfg, memory, when(2026, 11, 24, 10, 5))
+        self.assertEqual((texts, memory["seeded"], len(memory["seen"])), ([], True, 2))
+        self.assertEqual(len(slack_notify.plan(state(["a", "b", "c"], ""), cfg, memory, when(2026, 11, 24, 10, 6))[0]), 1)
+        # A source that is never read does not keep it quiet for ever.
+        texts, memory = slack_notify.plan(state(["a"], "gone"), cfg, {}, when(2026, 11, 24, 10, 0))
+        self.assertTrue(slack_notify.plan(state(["a"], "gone"), cfg, memory, when(2026, 11, 24, 11, 0))[1]["seeded"])
+
     def test_dates_no_clock_can_hold_do_not_take_the_calendar_down(self):
         text = ("BEGIN:VEVENT\nDTSTART:19650312T140000Z\nSUMMARY:Long ago\nEND:VEVENT\n"
                 "BEGIN:VEVENT\nDTSTART:99991231T235959Z\nSUMMARY:Far away\nEND:VEVENT\n"
@@ -697,18 +782,18 @@ class Reading(unittest.TestCase):
             note.write_text("- [ ] Send the offer \U0001f4c5 2099-01-02\n", encoding="utf-8")
             index = sources.TaskIndex(Path(tmp), ttl=0)
             today = calendar_feed.date(2026, 11, 24)
-            real = Path.read_text
-            with mock.patch.object(Path, "read_text", side_effect=OSError("not here yet")):
+            real = sources.task_lines
+            with mock.patch.object(sources, "task_lines", side_effect=OSError("not here yet")):
                 data, src = sources.read_tasks(index, today)
             self.assertEqual((data["items"], src["state"], src["note"]), ([], "unknown", "1 note could not be read"))
             data, src = sources.read_tasks(index, today)
             self.assertEqual((len(data["items"]), src["state"]), (1, "fresh"))
             # Known once, then out of reach: what was known stays, and it is said.
             os.utime(str(note), (1, 1))
-            with mock.patch.object(Path, "read_text", side_effect=OSError("gone again")):
+            with mock.patch.object(sources, "task_lines", side_effect=OSError("gone again")):
                 data, src = sources.read_tasks(index, today)
             self.assertEqual((len(data["items"]), src["state"]), (1, "unknown"))
-            self.assertIs(Path.read_text, real)
+            self.assertIs(sources.task_lines, real)
 
     def test_a_calendar_that_stopped_answering_is_not_fresh(self):
         today = calendar_feed.date.today()

@@ -4,27 +4,31 @@
 
   // This browser's own word. It is kept here and never sent: every question to Brento is signed with it (sign.js). On a
   // phone there is none, a paired phone carries a cookie instead.
-  let WORD = null, RUN = '';
-  function readWord() { try { const w = JSON.parse(localStorage.getItem(BrentoSign.KEY)); WORD = w && w.id && w.word ? w : null; } catch (e) { WORD = null; } }
+  let WORD = null, RUN = '', LET_IN = false;
+  function storedWord() { try { const w = JSON.parse(localStorage.getItem(BrentoSign.KEY)); return w && w.id && w.word ? w : null; } catch (e) { return null; } }
+  function readWord() { WORD = storedWord(); LET_IN = LET_IN || !!WORD; }
   readWord();
+  const locked = () => new Response('{"error":"Open Brento with its icon.","locked":true}', { status: 401, headers: { 'Content-Type': 'application/json' } });
   const fetch = async (url, options) => {
-    const o = Object.assign({}, options), at = new URL(url, location.href);
+    const o = Object.assign({}, options), at = new URL(url, location.href), api = at.pathname.startsWith('/api/');
+    // A window that was let in once, or is locked, believes nobody who does not know its word.
+    if (api && !WORD && LET_IN) { readWord(); if (!WORD) return locked(); }
+    // What is typed here goes out only after whoever answers has shown that it is Brento.
+    if (api && WORD && o.body) { const known = await fetch('/api/tools'); if (known.status === 401) return known; }
     for (let turn = 0; ; turn += 1) {
       const headers = Object.assign({ 'X-Leitstand': '1' }, o.headers), word = WORD, used = RUN;
-      if (!word || !at.pathname.startsWith('/api/')) return window.fetch(url, Object.assign({}, o, { headers }));
+      if (!word || !api) return window.fetch(url, Object.assign({}, o, { headers }));
       const head = BrentoSign.header(word, used, (o.method || 'GET').toUpperCase(), at.pathname + at.search, location.host, o.body || '', Date.now());
       headers['X-Brento-Sign'] = head;
       const r = await window.fetch(url, Object.assign({}, o, { headers }));
       if (r.headers.get('X-Brento-Answer') === BrentoSign.answer(word, head)) return r;
+      if (r.status !== 401) throw new Error('Something else answers at this address. Open Brento with its icon.');
       // Brento was started anew, or another window of this browser came in again: the same once more, signed for that.
-      const run = r.headers.get('X-Brento-Run');
-      if (r.status === 401 && turn < 3) {
-        if (run && run !== used) { RUN = run; continue; }
-        if (WORD === word) readWord();
-        if (WORD && WORD.word !== word.word) continue;
-      }
-      if (r.status === 401) return r;
-      throw new Error('Something else answers at this address. Open Brento with its icon.');
+      const run = r.headers.get('X-Brento-Run'), stored = storedWord();
+      if (turn < 3 && run && run !== used) { RUN = run; continue; }
+      if (turn < 3 && stored && stored.word !== word.word) { WORD = stored; continue; }
+      // Not signed, so only this much of it is believed.
+      return locked();
     }
   };
   // The icon's ticket, or the key from another computer, traded for a word. The address is cleaned first, and the word
@@ -41,6 +45,7 @@
       const word = await r.json();
       RUN = word.run || '';
       WORD = { id: word.id, word: word.word };
+      LET_IN = true;
       try { localStorage.setItem(BrentoSign.KEY, JSON.stringify(WORD)); } catch (e) { /* then it holds for this window only */ }
     } catch (e) { /* the page says what it cannot read */ }
   }
@@ -658,11 +663,11 @@
   const unread = () => S.sources.filter((s) => s.state === 'unknown' && s.note && (s.id !== 'calendar' || S.calendarConnected));
   const lostNow = () => unread().filter((s) => s.note !== 'still loading');
   // With nothing to read, a calm screen would claim something Brento cannot know.
-  const nothingYet = () => !S.calendarConnected && !S.sources.some((s) => s.id !== 'calendar');
+  const nothingYet = () => !S.vaultProblem && !S.sources.some((s) => s.id !== 'calendar' || S.calendarConnected);
   // Only what Brento has looked at.
   function quietWhy() {
     const has = (id) => S.sources.some((s) => s.id === id), parts = [];
-    if (S.calendarConnected) parts.push('no meeting');
+    if (S.calendarConnected && has('calendar')) parts.push('no meeting');
     if (has('tasks') || has('open-items')) parts.push('no deadline');
     if (has('board')) parts.push('no HIGH or MID card to do');
     const text = parts.length > 1 ? parts.slice(0, -1).join(', ') + ' and ' + parts[parts.length - 1] : parts[0] || 'nothing with a date';
@@ -701,7 +706,8 @@
       + '<div class="deck-foot">' + (many ? '<div class="pips">' + cards.map((c, i) => '<button type="button" data-go="' + i + '" aria-label="Card ' + (i + 1) + '"></button>').join('') + '</div>' : '')
       // No key hints under the cards (owner, 08.11.2026: clutter). Only a broken calendar speaks up, because meetings would be missing.
       + (S.calendarConnected ? '' : '<div class="hints"><span><a href="' + (S.phone ? '#today' : '#setup/3') + '">Calendar not connected, so meetings are missing</a></span></div>')
-      + (S.focus.length && (lostNow().length || S.vaultProblem) ? '<div class="hints"><span><a href="#brain">N/A: ' + esc(lostNow().map((s) => s.label).join(', ') || S.vaultProblem) + '</a></span></div>' : '') + '</div>';
+      + (S.focus.length && (lostNow().length || S.vaultProblem) ? '<div class="hints"><span><a href="#brain">N/A: ' + esc(lostNow().map((s) => s.label).join(', ') || S.vaultProblem) + '</a></span></div>' : '')
+      + (S.focus.length && unread().length > lostNow().length ? '<div class="hints"><span><a href="#brain">Still reading: ' + esc(unread().filter((s) => s.note === 'still loading').map((s) => s.label).join(', ')) + '</a></span></div>' : '') + '</div>';
     firstHome = false;
     bindDeck();
   }
@@ -1198,7 +1204,8 @@
       main.innerHTML = '<header class="ph"><h1>' + esc(q) + '</h1></header>'
         + (titles.length ? '<h2 class="section-title">Titles <span>' + titles.length + '</span></h2><div class="rows">' + titles.map(noteRow).join('') + '</div>' : '')
         + '<h2 class="section-title">In the text <span>' + (hits === null ? 'searching' : text.length) + '</span></h2>'
-        + (text.length ? '<div class="rows">' + text.map(noteRow).join('') + '</div>' : (titles.length ? '' : '<div class="empty">Nothing found.</div>'));
+        + (text.length ? '<div class="rows">' + text.map(noteRow).join('') + '</div>' : (titles.length ? '' : '<div class="empty">Nothing found.</div>'))
+        + (LIB.away ? '<p class="note">' + LIB.away + (LIB.away === 1 ? ' note is' : ' notes are') + ' not on this computer yet, so the text was not searched. Brento fetches them in the background.</p>' : '');
     };
     const res = await fetch('/api/library/search?q=' + encodeURIComponent(q)).then((r) => r.json()).catch(() => ({ hits: [] }));
     const box = $('#lib-search');
@@ -1739,8 +1746,11 @@
   }
   function wzFound() {
     if (!WZ.vault) return '';
-    if (!WZ.stats) return '<p class="wz-lead">Counting notes…</p>';
-    return WZ.stats.error ? wzWarn(esc(WZ.stats.error)) : wzOk('Found ' + WZ.stats.notes.toLocaleString('en-GB') + ' notes' + (WZ.stats.tasks === null ? '. Brento looks for tasks in them while you go on.' : ' and ' + WZ.stats.tasks + (WZ.stats.tasks === 1 ? ' task' : ' tasks') + ' with a date.'))
+    if (!WZ.stats) {
+      return '<p class="wz-lead">Counting notes…</p>' + (WZ.data.platform === 'darwin' && /\/(Documents|Desktop|Downloads|Library\/(Mobile Documents|CloudStorage))(\/|$)/.test(WZ.vault)
+        ? '<p class="note">macOS may ask whether Brento may read this folder. Click Allow, or OK.</p>' : '');
+    }
+    return WZ.stats.error ? wzWarn(esc(WZ.stats.error)) : wzOk('Found ' + Number(WZ.stats.notes).toLocaleString('en-GB') + ' notes' + (WZ.stats.tasks === null ? '. Brento looks for tasks in them while you go on.' : ' and ' + Number(WZ.stats.tasks) + (WZ.stats.tasks === 1 ? ' task' : ' tasks') + ' with a date.'))
       + (WZ.stats.missing ? '<p class="note">' + esc(WZ.stats.missing.charAt(0).toUpperCase() + WZ.stats.missing.slice(1)) + '. Brento tries again by itself.</p>' : '');
   }
   function paintFound() { const box = $('#wz-found'); if (box) box.innerHTML = wzFound(); }
@@ -1841,7 +1851,6 @@
       + (d.platform === 'win32' ? '<p class="note">In the Explorer, right-click the folder, choose <b>Copy as path</b> and paste it here. On Windows 10 hold Shift while you right-click.</p>'
         : d.platform === 'darwin' ? '<p class="note">In the Finder, hold <b>Control</b> and click the folder, then hold <b>Option</b> as well, choose <b>Copy … as Pathname</b> and paste it here.</p>' : '');
     html += '<div id="wz-found">' + wzFound() + '</div>';
-    if (d.platform === 'darwin' && /\/(Documents|Desktop|Downloads|Library\/(Mobile Documents|CloudStorage))(\/|$)/.test(WZ.vault)) html += '<p class="note">macOS may ask whether Brento may read this folder. Click Allow, or OK.</p>';
     return html;
   }
   // Said before the click: GitHub's own page asks for more than Brento uses, and in another program's name.
@@ -1875,7 +1884,7 @@
     }
     html += '<div class="wz-choices">' + wzChoice('id="wz-create"', 'Create a new board for me', 'Called "Brento", with the lanes, an area and a due date', false)
       + (d.orgs || []).map((o) => wzChoice('data-org="' + esc(o) + '"', 'Create a team board in ' + o, 'Shared by everyone in ' + o + '. Each person\'s Home shows their own cards.', false)).join('')
-      + (d.projects || []).map((p) => wzChoice('data-board="' + p.number + '" data-owner="' + esc(p.owner) + '" data-kind="' + p.ownerType + '"', p.title, p.cards + (p.cards === 1 ? ' card' : ' cards'), false)).join('') + '</div>';
+      + (d.projects || []).map((p) => wzChoice('data-board="' + Number(p.number) + '" data-owner="' + esc(p.owner) + '" data-kind="' + esc(p.ownerType) + '"', p.title, p.cards + (p.cards === 1 ? ' card' : ' cards'), false)).join('') + '</div>';
     return html + (d.projectsError ? wzWarn(esc(d.projectsError)) : '') + busy;
   }
   function wzCalendar() {
@@ -2014,7 +2023,7 @@
       try { await wzSaveOne(name); WZ.over = true; stateText = ''; await load(); loadTools(true); navigate('home'); }
       catch (err) { $('#wz-error').textContent = err.message; b.disabled = false; }
     });
-    on('#wz-team', () => post('/api/team', { team: WZ.board.owner, tools: Array.from(WZ.tools || []), calendar: WZ.calOk ? WZ.provider : '' })
+    on('#wz-team', () => post('/api/team', { team: WZ.board.owner, tools: WZ.tools ? Array.from(WZ.tools) : WZ.data.catalog.filter((t) => t.added).map((t) => t.id), calendar: WZ.calOk && WZ.tools ? WZ.provider : '' })
       .then(() => { WZ.teamSaved = true; paintWizard(); }).catch((err) => toast(err.message)));
     $$('#wz [data-open]').forEach((b) => { b.onclick = () => wzOpen(b.dataset.open, b.dataset.open === 'gh-install' ? 'Downloading the GitHub program from github.com. This page moves on by itself when it is done.'
       : b.dataset.open === 'claude-login' ? 'Claude\'s sign-in page opens in your browser. Confirm there, then come back. This page moves on by itself.' : 'Getting a code from GitHub…'); });
@@ -2056,7 +2065,7 @@
         // A folder that cannot be read is said here, not four questions later.
         const typed = typedPath($('#wz-path')), seen = typed === WZ.vault && WZ.stats;
         WZ.vault = typed;
-        const found = typed ? seen || await vaultStats() : null;
+        const found = typed ? (seen && !seen.error ? seen : await vaultStats()) : null;
         if (route !== 'setup' || WZ_STEPS[WZ.step] !== name || (found && found.error)) return undefined;
       }
       if (pending()) return undefined;
@@ -2154,6 +2163,7 @@
 
   /* Not let in: the frame without anything in it, and the way in. After the next good answer the page starts over. */
   function showLocked() {
+    LET_IN = true;
     document.documentElement.classList.add('locked');
     document.title = 'Brento';
     const win = /Windows/.test(navigator.userAgent), mac = /Mac OS/.test(navigator.userAgent);
@@ -2165,7 +2175,7 @@
   }
 
   /* Data */
-  let webVersion = null, lookAgain = 0, looked = 0;
+  let webVersion = null, lookAgain = 0, looked = 0, silent = false;
   async function load() {
     try {
       const res = await fetch('/api/state');
@@ -2179,6 +2189,7 @@
       if (!res.ok) throw new Error('HTTP ' + res.status);
       const text = await res.text();
       if (document.documentElement.classList.contains('locked')) { location.reload(); return; }
+      silent = false;
       const now = new Date();
       // Something is still being read: look again soon, not only in a minute.
       clearTimeout(lookAgain);
@@ -2200,6 +2211,9 @@
       if (!['ask', 'library', 'setup', 'settings'].includes(route)) refreshInPlace();
       popAlert();
     } catch (err) {
+      // Said once: what stands here is from before.
+      if (S && !silent) toast(/Something else/.test(err.message) ? err.message : 'Brento is not answering. What you see here is from before.');
+      silent = true;
       if (!S) $('#view').innerHTML = '<div class="offline"><b>Brento is not answering.</b><br>On the computer, open it with its icon: press the Windows key, or Cmd and Space on a Mac, type Brento and press Enter. On a phone: is the computer on, and in the same Wi-Fi?</div>';
     }
   }
