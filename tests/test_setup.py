@@ -1,4 +1,4 @@
-"""Brento for a new owner: settings, Obsidian tasks, the schedule check and the setup's save."""
+"""Daytag for a new owner: settings, Obsidian tasks, the schedule check and the setup's save."""
 import json
 import os
 import sys
@@ -67,8 +67,8 @@ class Settings(unittest.TestCase):
 
     def test_save_and_load_round_trip_in_its_own_folder(self):
         folder = Path(tempfile.mkdtemp())
-        old = os.environ.get("BRENTO_HOME")
-        os.environ["BRENTO_HOME"] = str(folder)
+        old = os.environ.get("DAYTAG_HOME")
+        os.environ["DAYTAG_HOME"] = str(folder)
         try:
             vault = vault_with({})
             settings.save({"name": "Alex", "vault": str(vault), "board": {"owner": "alex-dev", "number": 3, "areaField": "Bereich"}})
@@ -76,12 +76,12 @@ class Settings(unittest.TestCase):
             self.assertEqual(loaded["name"], "Alex")
             self.assertEqual(loaded["board"]["areaField"], "Bereich")
             self.assertEqual(Path(loaded["vault"]), vault.resolve())
-            self.assertTrue((folder / "brento.json").is_file())
+            self.assertTrue((folder / "daytag.json").is_file())
         finally:
             if old is None:
-                os.environ.pop("BRENTO_HOME")
+                os.environ.pop("DAYTAG_HOME")
             else:
-                os.environ["BRENTO_HOME"] = old
+                os.environ["DAYTAG_HOME"] = old
 
     def test_board_query_uses_the_owners_field_names_and_kind(self):
         query = sources.board_query("org", {"areaField": "Bereich", "dueField": "Due date", "doneField": ""})
@@ -220,16 +220,16 @@ class Schedule(unittest.TestCase):
 class SetupSave(unittest.TestCase):
     def setUp(self):
         self.folder = Path(tempfile.mkdtemp())
-        self.old = os.environ.get("BRENTO_HOME")
-        os.environ["BRENTO_HOME"] = str(self.folder)
+        self.old = os.environ.get("DAYTAG_HOME")
+        os.environ["DAYTAG_HOME"] = str(self.folder)
         self.me = sources.ME
 
     def tearDown(self):
         sources.ME = self.me
         if self.old is None:
-            os.environ.pop("BRENTO_HOME", None)
+            os.environ.pop("DAYTAG_HOME", None)
         else:
-            os.environ["BRENTO_HOME"] = self.old
+            os.environ["DAYTAG_HOME"] = self.old
         sources.load_private(Path(__file__).resolve().parent / "stand-in-terms.txt")
 
     def test_first_start_opens_the_setup_and_a_save_adds_tools_only(self):
@@ -248,7 +248,7 @@ class SetupSave(unittest.TestCase):
         self.assertEqual(names[0], "Mine")
         board = next(t for t in app.tools.load()["tools"] if t["name"] == "Board")
         self.assertEqual(board["url"], "https://github.com/users/alex-dev/projects/4")
-        saved = json.loads((self.folder / "brento.json").read_text(encoding="utf-8"))
+        saved = json.loads((self.folder / "daytag.json").read_text(encoding="utf-8"))
         self.assertEqual(saved["board"]["owner"], "alex-dev")
         self.assertTrue(saved["sources"]["tasks"]["on"])
         # Saving again adds nothing twice.
@@ -263,7 +263,7 @@ class SetupSave(unittest.TestCase):
         app = server.App(None, "127.0.0.1", [], "sonnet")
         self.assertFalse(app.needs_setup)
         app.save_setup({"profile": {"board": {"owner": "alex-dev", "number": 5, "areaField": "Area"}}})
-        saved = json.loads((self.folder / "brento.json").read_text(encoding="utf-8"))
+        saved = json.loads((self.folder / "daytag.json").read_text(encoding="utf-8"))
         self.assertEqual(saved["board"]["number"], 5)
         self.assertEqual(saved["board"]["aging"]["repo"], "alex-dev/brain")
 

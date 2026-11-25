@@ -2,7 +2,7 @@
 
 A .pkg is a xar archive: a header, a compressed XML table of contents, and the files one after the other. Inside it
 are the Distribution file (what Apple's Installer shows and asks) and one component with its PackageInfo and its
-Scripts. Scripts is a gzipped cpio archive. Brento's component has no payload of its own: its postinstall script
+Scripts. Scripts is a gzipped cpio archive. Daytag's component has no payload of its own: its postinstall script
 unpacks what lies next to it, so everything lands in the home folder of the person installing, without admin rights.
 """
 import gzip

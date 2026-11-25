@@ -14,6 +14,8 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlsplit
 
+import secret
+
 try:
     from zoneinfo import ZoneInfo
 except ImportError:
@@ -155,7 +157,7 @@ class Feed:
 
     def url(self):
         try:
-            return self.path.read_text(encoding="utf-8-sig").strip()
+            return secret.shown(self.path.read_text(encoding="utf-8-sig"))
         except OSError:
             return ""
 
@@ -169,9 +171,9 @@ class Feed:
             body = self.read(url)
         except (OSError, ValueError, http.client.HTTPException):
             # The message stays generic, because a network error can quote the secret link.
-            raise ValueError("Brento could not read that link. Copy it again from your calendar's settings.") from None
+            raise ValueError("Daytag could not read that link. Copy it again from your calendar's settings.") from None
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(url, encoding="utf-8")
+        self.path.write_text(secret.hidden(url), encoding="utf-8")
         try:
             self.path.chmod(0o600)
         except OSError:
@@ -187,7 +189,7 @@ class Feed:
 
     @staticmethod
     def read(url):
-        request = urllib.request.Request(url, headers={"User-Agent": "Brento"})
+        request = urllib.request.Request(url, headers={"User-Agent": "Daytag"})
         with urllib.request.urlopen(request, timeout=20) as res:
             body = res.read(MAX_BYTES + 1).decode("utf-8", errors="replace")
         # The last line counts too: a transfer that broke off looks like a calendar with fewer appointments.

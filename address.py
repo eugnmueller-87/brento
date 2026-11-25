@@ -1,7 +1,7 @@
-"""Where Brento answers on this computer, and whose Brento answers there.
+"""Where Daytag answers on this computer, and whose Daytag answers there.
 
-127.0.0.1 belongs to everyone who is signed in to a computer at the same time. So every Brento has its owner's key, a
-file only that person can read, and opens for nobody else. The second person's Brento takes the next free port.
+127.0.0.1 belongs to everyone who is signed in to a computer at the same time. So every Daytag has its owner's key, a
+file only that person can read, and opens for nobody else. The second person's Daytag takes the next free port.
 """
 import hashlib
 import hmac
@@ -24,23 +24,23 @@ import settings
 FIRST = 8770
 # The phone's door is always one above, so the steps are two wide.
 PORTS = range(FIRST, FIRST + 60, 2)
-KEY_HEADER = "X-Brento-Key"
-SIGN_HEADER = "X-Brento-Sign"
-ANSWER_HEADER = "X-Brento-Answer"
-RUN_HEADER = "X-Brento-Run"
+KEY_HEADER = "X-Daytag-Key"
+SIGN_HEADER = "X-Daytag-Sign"
+ANSWER_HEADER = "X-Daytag-Answer"
+RUN_HEADER = "X-Daytag-Run"
 # A signature counts for one run of the server only. The time is a last fence, wide enough that a clock which was put
 # right locks nobody out.
 SIGN_SECONDS = 24 * 3600
 MAX_BROWSERS = 40
 MAX_ANSWER = 256 * 1024
 NONCE = re.compile(r"^[A-Za-z0-9_-]{16,64}$")
-# Brento is on this computer, so it is never asked through a proxy.
+# Daytag is on this computer, so it is never asked through a proxy.
 DIRECT = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
 
 def port():
-    """The port this person's Brento uses: the usual one, or the one it had to move to."""
-    forced = os.environ.get("BRENTO_PORT")
+    """The port this person's Daytag uses: the usual one, or the one it had to move to."""
+    forced = os.environ.get("DAYTAG_PORT")
     if forced:
         return int(forced)
     try:
@@ -95,7 +95,7 @@ def key():
 def proof(secret, number, nonce):
     """Shows that a server knows the key without saying it. The port is part of it, so a program on another port
     cannot pass the question on to the real one and repeat its answer."""
-    return hmac.new(secret.encode("utf-8"), ("brento %d %s" % (number, nonce)).encode("utf-8"), hashlib.sha256).hexdigest()
+    return hmac.new(secret.encode("utf-8"), ("daytag %d %s" % (number, nonce)).encode("utf-8"), hashlib.sha256).hexdigest()
 
 
 def private_file(path, text):
@@ -133,7 +133,7 @@ class Browsers:
     on 127.0.0.1, whatever its port. A word counts only at the address it was given for, a signature only for one run of
     the server, and the answer is signed too.
 
-    Where other people have an account as well, a word ends with the run that gave it. While Brento is not running, a
+    Where other people have an account as well, a word ends with the run that gave it. While Daytag is not running, a
     program of theirs can take its address, and a page at the same address can read what the browser keeps for it. What all
     this cannot stop is said in docs/BLUEPRINT.md."""
 
@@ -226,7 +226,7 @@ def peer_uid(client, here):
 
 
 def ask(path, number, secret="", data=None, timeout=2.0):
-    """(status, answer, whether a Brento gave it). Status 0 when nothing answers there. Whatever sits on the port, this
+    """(status, answer, whether a Daytag gave it). Status 0 when nothing answers there. Whatever sits on the port, this
     comes back soon and without an error."""
     got = []
     worker = threading.Thread(target=lambda: got.append(_ask(path, number, secret, data, timeout)), daemon=True)
@@ -236,7 +236,7 @@ def ask(path, number, secret="", data=None, timeout=2.0):
 
 
 def _ask(path, number, secret, data, timeout):
-    headers = {"X-Leitstand": "1"}
+    headers = {"X-Daytag": "1"}
     if secret:
         headers[KEY_HEADER] = secret
     if data is not None:
@@ -254,16 +254,16 @@ def _ask(path, number, secret, data, timeout):
         answer = json.loads(raw.decode("utf-8"))
     except ValueError:
         answer = {}
-    return status, answer if isinstance(answer, dict) else {}, named.startswith("Brento")
+    return status, answer if isinstance(answer, dict) else {}, named.startswith("Daytag")
 
 
 def whose(number=0, timeout=2.0):
-    """'mine' for this person's Brento, 'other' for someone else's, 'older' for one from before the key, and '' when no
-    Brento answers there. The key itself only ever goes to a server that has proved it already knows it."""
+    """'mine' for this person's Daytag, 'other' for someone else's, 'older' for one from before the key, and '' when no
+    Daytag answers there. The key itself only ever goes to a server that has proved it already knows it."""
     number = number or port()
     nonce = secrets.token_urlsafe(24)
-    status, answer, brento = ask("api/whose?n=" + nonce, number, timeout=timeout)
-    if not brento:
+    status, answer, daytag = ask("api/whose?n=" + nonce, number, timeout=timeout)
+    if not daytag:
         return ""
     if status == 200:
         mine = key()
@@ -274,7 +274,7 @@ def whose(number=0, timeout=2.0):
 
 
 def entrance(number=0):
-    """The address that opens this person's Brento in a browser: with a ticket that works once, for two minutes.
+    """The address that opens this person's Daytag in a browser: with a ticket that works once, for two minutes.
     Addresses end up in histories and process lists, so the key is never part of one."""
     number = number or port()
     if whose(number) == "mine":

@@ -25,5 +25,5 @@ jobs:
         run: |
           for f in web/app.js web/art.js web/sign.js; do node --check "$f" || exit 1; done
           sh -n install.sh
-          sh -n "Install Brento.command"
+          sh -n "Install Daytag.command"
           sh -n packaging/mac/postinstall

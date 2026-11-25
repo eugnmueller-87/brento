@@ -1,6 +1,6 @@
-"""Brento on a phone: the computer opens a second door on the home network, and only paired phones get in.
+"""Daytag on a phone: the computer opens a second door on the home network, and only paired phones get in.
 
-Nothing runs on the phone. It shows this computer's Brento, so an iPhone or an Android phone needs no app store, only
+Nothing runs on the phone. It shows this computer's Daytag, so an iPhone or an Android phone needs no app store, only
 an icon on its home screen. A phone pairs once with a six-digit code that the computer shows for ten minutes, and
 then keeps a long random token in a cookie. Only a hash of each token is saved. A paired phone reads Home, the
 board, the calendar and the notes, may ask the Ask box and remove a card from Home. It can never change the setup,
@@ -20,7 +20,7 @@ import time
 from pathlib import Path
 
 FILE = "phone.json"
-COOKIE = "brento_phone"
+COOKIE = "daytag_phone"
 CODE_TTL = 600
 CODE_TRIES = 5
 MAX_DEVICES = 20
@@ -61,7 +61,7 @@ def kind(ip):
 
 def own_addresses():
     """This computer's addresses on all its adapters. Windows gives them for its own name at once. Elsewhere looking
-    the name up goes out to the network: it can take half a minute, and on a Mac it raises the question whether Brento
+    the name up goes out to the network: it can take half a minute, and on a Mac it raises the question whether Daytag
     may find devices on the local network. So there the system's own list is read."""
     if sys.platform == "win32":
         try:
@@ -206,12 +206,12 @@ PAGE = """<!doctype html>
 <meta name="theme-color" content="#0b0e15">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-title" content="Brento">
+<meta name="apple-mobile-web-app-title" content="Daytag">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
 <link rel="manifest" href="/manifest.webmanifest">
-<title>Brento</title>
+<title>Daytag</title>
 <style>
 :root { color-scheme: dark; --bg: #0b0e15; --fg: #e8ecf4; --dim: #9aa3b5; --line: #232a38; --accent: #6cf5bf; --warn: #ffb86b; }
 * { box-sizing: border-box; }
@@ -235,21 +235,21 @@ b { color: var(--fg); }
 <main>
 <div class="mark" aria-hidden="true"></div>
 <h1>Connect this phone</h1>
-<p>Type the code your computer shows in Brento under <b>Settings, Phone</b>.</p>
+<p>Type the code your computer shows in Daytag under <b>Settings, Phone</b>.</p>
 <!--error-->
 <form method="post" action="/pair">
 <input name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="7" pattern="[0-9 ]*" placeholder="000000" aria-label="Six-digit code" autofocus required>
 <button type="submit">Connect</button>
 </form>
 <ol>
-<li>iPhone: tap <b>Share</b>, then <b>Add to Home Screen</b>, and open Brento from its new icon. Then type the code there.</li>
+<li>iPhone: tap <b>Share</b>, then <b>Add to Home Screen</b>, and open Daytag from its new icon. Then type the code there.</li>
 <li>Android: open the menu, then <b>Add to Home screen</b>.</li>
 </ol>
 </main>
 </body>
 </html>
 """
-WRONG = "That code is not right, or it has run out. On your computer: Brento, Settings, Phone, New code."
+WRONG = "That code is not right, or it has run out. On your computer: Daytag, Settings, Phone, New code."
 
 
 def page(error=""):

@@ -117,13 +117,13 @@ class SignIns(unittest.TestCase):
         # The wizard decides by these words which button it shows.
         text = (ROOT / "sources.py").read_text(encoding="utf-8")
         for words in ("The GitHub program is not installed yet.", "GitHub is not signed in yet.",
-                      "GitHub does not let Brento read your boards yet."):
+                      "GitHub does not let Daytag read your boards yet."):
             self.assertIn(words, text)
         for name in ("sources.py", "server.py", "wizard.py", "web/app.js"):
             self.assertNotIn("gh auth login", (ROOT / name).read_text(encoding="utf-8"), name)
 
     def test_the_installers_gh_is_found_last(self):
-        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(os.environ, {"BRENTO_HOME": tmp}), \
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(os.environ, {"DAYTAG_HOME": tmp}), \
                 mock.patch.object(settings, "BUNDLED_BIN", Path(tmp, "bundled")):
             for system in ("darwin", "win32"):
                 seen = []
@@ -138,7 +138,7 @@ class SignIns(unittest.TestCase):
 
 
 class Start(unittest.TestCase):
-    def test_no_name_is_looked_up_before_brento_listens(self):
+    def test_no_name_is_looked_up_before_daytag_listens(self):
         # The lookup can take half a minute, and on a Mac it can raise a question about the local network.
         def never(*args):
             raise AssertionError("looked up %r" % (args,))
@@ -150,7 +150,7 @@ class Start(unittest.TestCase):
                 finally:
                     srv.server_close()
 
-    def test_a_second_brento_does_not_share_the_port(self):
+    def test_a_second_daytag_does_not_share_the_port(self):
         first = server.Server(("127.0.0.1", 0), server.Handler)
         try:
             with self.assertRaises(OSError):
@@ -181,25 +181,25 @@ class Launcher(unittest.TestCase):
                 mock.patch.object(launcher, "until", return_value=True), mock.patch.object(launcher.os, "kill") as kill:
             launcher.stop()
             kill.assert_not_called()
-            launcher.stop(any_brento=True)
+            launcher.stop(any_daytag=True)
             kill.assert_called_once()
 
-    def test_stop_never_ends_another_program_or_another_persons_brento(self):
+    def test_stop_never_ends_another_program_or_another_persons_daytag(self):
         for whose in ("", "other"):
             with mock.patch.object(launcher, "agent", return_value=None), mock.patch.object(launcher, "listener", return_value=77), \
                     mock.patch.object(launcher, "ours", return_value=False), mock.patch.object(address, "whose", return_value=whose), \
                     mock.patch.object(launcher, "until", return_value=True), mock.patch.object(launcher.os, "kill") as kill:
-                launcher.stop(any_brento=True)
+                launcher.stop(any_daytag=True)
                 kill.assert_not_called()
 
-    def test_a_brento_that_ended_by_itself_counts_as_stopped(self):
+    def test_a_daytag_that_ended_by_itself_counts_as_stopped(self):
         seen = iter([77, 0, 0])
         with mock.patch.object(launcher, "agent", return_value=None), mock.patch.object(launcher, "listener", side_effect=lambda: next(seen)),                 mock.patch.object(launcher, "ours", return_value=True), mock.patch.object(launcher, "end_helpers"),                 mock.patch.object(launcher.os, "kill", side_effect=ProcessLookupError):
             self.assertTrue(launcher.stop())
         with mock.patch.object(launcher, "agent", return_value=None), mock.patch.object(launcher, "listener", return_value=77),                 mock.patch.object(launcher, "ours", return_value=True), mock.patch.object(launcher, "end_helpers"),                 mock.patch.object(launcher, "until", side_effect=lambda check, seconds: check()),                 mock.patch.object(launcher.os, "kill", side_effect=PermissionError):
             self.assertFalse(launcher.stop())
 
-    def test_another_persons_brento_is_never_opened_as_ones_own(self):
+    def test_another_persons_daytag_is_never_opened_as_ones_own(self):
         with mock.patch.object(launcher, "agent", return_value=None), mock.patch.object(address, "whose", return_value="other"), \
                 mock.patch.object(launcher, "until", return_value=False), mock.patch.object(launcher, "spawn") as spawn:
             self.assertIn("did not start", launcher.start())
@@ -244,7 +244,7 @@ class Launcher(unittest.TestCase):
             probe.bind(("127.0.0.1", 0))
             port = probe.getsockname()[1]
         with tempfile.TemporaryDirectory() as tmp:
-            env = dict(os.environ, BRENTO_PORT=str(port), BRENTO_HOME=tmp, BRENTO_NO_BROWSER="1")
+            env = dict(os.environ, DAYTAG_PORT=str(port), DAYTAG_HOME=tmp, DAYTAG_NO_BROWSER="1")
 
             def run(*args):
                 return subprocess.run([sys.executable, str(ROOT / "launcher.py")] + list(args), env=env, timeout=90).returncode
@@ -261,7 +261,7 @@ class Launcher(unittest.TestCase):
                     self.assertEqual(address.whose(), "mine")
                     self.assertNotEqual(launcher.listener(), first)
                 finally:
-                    launcher.stop(any_brento=True)
+                    launcher.stop(any_daytag=True)
                 self.assertEqual(address.whose(), "")
                 # Windows lets go of the log a moment after the process is gone.
                 until(lambda: not launcher.listener())
@@ -270,20 +270,20 @@ class Launcher(unittest.TestCase):
 
 class MacPackage(unittest.TestCase):
     def test_what_is_written_reads_back(self):
-        scripts = macpkg.scripts_archive({"postinstall": (b"#!/bin/sh\nexit 0\n", True), "brento.tar.gz": (b"\x1f\x8b data", False)})
+        scripts = macpkg.scripts_archive({"postinstall": (b"#!/bin/sh\nexit 0\n", True), "daytag.tar.gz": (b"\x1f\x8b data", False)})
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp, "x.pkg")
-            macpkg.write(target, b"<installer-gui-script/>", {"en.lproj/welcome.html": b"<p>Hello & welcome</p>"}, "brento.pkg",
-                         macpkg.package_info("app.brento.pkg", "1.2.3", 5), scripts)
+            macpkg.write(target, b"<installer-gui-script/>", {"en.lproj/welcome.html": b"<p>Hello & welcome</p>"}, "daytag.pkg",
+                         macpkg.package_info("app.daytag.pkg", "1.2.3", 5), scripts)
             raw = target.read_bytes()
         self.assertEqual(raw[:4], b"xar!")
         inside = macpkg.read_xar(raw)
-        self.assertEqual(sorted(inside), ["Distribution", "Resources/en.lproj/welcome.html", "brento.pkg/PackageInfo", "brento.pkg/Scripts"])
-        files = macpkg.read_scripts(inside["brento.pkg/Scripts"])
+        self.assertEqual(sorted(inside), ["Distribution", "Resources/en.lproj/welcome.html", "daytag.pkg/PackageInfo", "daytag.pkg/Scripts"])
+        files = macpkg.read_scripts(inside["daytag.pkg/Scripts"])
         self.assertEqual(files["./postinstall"], (0o100755, b"#!/bin/sh\nexit 0\n"))
-        self.assertEqual(files["./brento.tar.gz"], (0o100644, b"\x1f\x8b data"))
+        self.assertEqual(files["./daytag.tar.gz"], (0o100644, b"\x1f\x8b data"))
         self.assertEqual(files["."][0], 0o040755)
-        info = ET.fromstring(inside["brento.pkg/PackageInfo"])
+        info = ET.fromstring(inside["daytag.pkg/PackageInfo"])
         self.assertEqual((info.get("version"), info.get("auth")), ("1.2.3", "none"))
         self.assertEqual(info.find("scripts/postinstall").get("file"), "./postinstall")
 
@@ -300,14 +300,14 @@ class MacPackage(unittest.TestCase):
         self.assertEqual((domains["enable_currentUserHome"], domains["enable_localSystem"], domains["enable_anywhere"]), ("true", "false", "false"))
         self.assertEqual(root.find("options").get("hostArchitectures"), "arm64,x86_64")
         refs = [r for r in root.findall("pkg-ref") if r.text]
-        self.assertEqual(refs[0].text, "#brento.pkg")
+        self.assertEqual(refs[0].text, "#daytag.pkg")
         for name in (root.find("welcome").get("file"), root.find("conclusion").get("file")):
             for lang in ("en", "de"):
                 page = (ROOT / "packaging" / "mac" / (lang + ".lproj") / name).read_text(encoding="utf-8")
                 # Apple's Installer shows these pages on a dark window in dark mode.
                 self.assertIn("prefers-color-scheme: dark", page)
 
-    def test_the_python_that_goes_along_keeps_what_brento_needs(self):
+    def test_the_python_that_goes_along_keeps_what_daytag_needs(self):
         for name in ("python/lib/python3.14/http/server.py", "python/lib/python3.14/ssl.py", "python/lib/python3.14/json/decoder.py",
                      "python/lib/python3.14/threading.py", "python/lib/python3.14/LICENSE.txt", "python/lib/python3.14/zoneinfo/__init__.py",
                      "python/lib/python3.14/encodings/utf_8.py", "python/lib/python3.14/importlib/__init__.py"):
@@ -344,7 +344,7 @@ class Contents(unittest.TestCase):
         self.assertNotIn(b"\r\n", files["install.sh"])
 
     def test_windows_installs_for_the_person_and_cleans_up(self):
-        text = (ROOT / "packaging" / "windows" / "brento.iss").read_text(encoding="utf-8")
+        text = (ROOT / "packaging" / "windows" / "daytag.iss").read_text(encoding="utf-8")
         self.assertIn("PrivilegesRequired=lowest", text)
         self.assertIn("uninsdeletevalue", text)
         self.assertIn('--stop"; RunOnceId', text)
@@ -352,7 +352,7 @@ class Contents(unittest.TestCase):
         self.assertIn('Type: filesandordirs; Name: "{app}\\python"', text[text.index("[UninstallDelete]"):])
 
     def test_shell_scripts_have_unix_line_endings(self):
-        for rel in ("install.sh", "packaging/mac/postinstall", "Install Brento.command"):
+        for rel in ("install.sh", "packaging/mac/postinstall", "Install Daytag.command"):
             self.assertNotIn(b"\r\n", (ROOT / rel).read_bytes(), rel)
 
 

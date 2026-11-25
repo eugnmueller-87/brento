@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The Microsoft Store package. packaging/store.py puts the values in where this has words in braces. -->
+<Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+         xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+         xmlns:uap10="http://schemas.microsoft.com/appx/manifest/uap/windows10/10"
+         xmlns:uap17="http://schemas.microsoft.com/appx/manifest/uap/windows10/17"
+         xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10"
+         xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+         IgnorableNamespaces="uap uap10 uap17 desktop rescap">
+  <Identity Name="{name}" Publisher="{publisher}" Version="{version}" ProcessorArchitecture="x64" />
+  <Properties>
+    <DisplayName>Daytag</DisplayName>
+    <PublisherDisplayName>{display}</PublisherDisplayName>
+    <Description>One screen that tells you what needs you today</Description>
+    <Logo>Assets\StoreLogo.png</Logo>
+    <!-- Daytag runs all day. From Windows 11 24H2 on, an update waits until it has ended. Older ones do not know this line. -->
+    <uap17:UpdateWhileInUse>defer</uap17:UpdateWhileInUse>
+  </Properties>
+  <Dependencies>
+    <!-- Windows 10 2004 is the first one that passes uap10:Parameters on. -->
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.19041.0" MaxVersionTested="10.0.26100.0" />
+  </Dependencies>
+  <Resources>
+    <Resource Language="en-us" />
+  </Resources>
+  <Applications>
+    <!-- Windows starts it at sign-in, and it goes on only if its owner said so in the setup (settings.starts_itself). -->
+    <Application Id="Daytag" Executable="python\pythonw.exe" EntryPoint="Windows.FullTrustApplication" uap10:Parameters="-m launcher">
+      <uap:VisualElements DisplayName="Daytag" Description="One screen that tells you what needs you today" BackgroundColor="transparent"
+                          Square150x150Logo="Assets\Square150x150Logo.png" Square44x44Logo="Assets\Square44x44Logo.png" />
+      <Extensions>
+        <desktop:Extension Category="windows.startupTask" Executable="python\pythonw.exe" EntryPoint="Windows.FullTrustApplication"
+                           uap10:Parameters="-m launcher --start">
+          <desktop:StartupTask TaskId="DaytagStart" Enabled="true" DisplayName="Daytag" />
+        </desktop:Extension>
+      </Extensions>
+    </Application>
+{probe}  </Applications>
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust" />
+  </Capabilities>
+</Package>

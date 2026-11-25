@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""Opens Brento: makes sure it runs, then shows it. Every shortcut the installers make points here.
+"""Opens Daytag: makes sure it runs, then shows it. Every shortcut the installers make points here.
 
-    launcher.py             start Brento when it is not running, then open it
+    launcher.py             start Daytag when it is not running, then open it
     launcher.py --start     only start it (at sign-in)
-    launcher.py --stop      stop the Brento that runs from this folder
-    launcher.py --replace   stop whichever Brento this person has running first (after an install or an update)
+    launcher.py --stop      stop the Daytag that runs from this folder
+    launcher.py --replace   stop whichever Daytag this person has running first (after an install or an update)
 
 There is no window and no terminal. What goes wrong is said in an ordinary message box, and the details are in
-server.log in Brento's settings folder.
+server.log in Daytag's settings folder.
 """
 import argparse
 import os
@@ -22,7 +22,7 @@ sys.path.insert(0, str(HERE))
 import address  # noqa: E402
 import settings  # noqa: E402
 
-LABEL = "app.brento.server"
+LABEL = "app.daytag.server"
 NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0
 MAX_LOG = 1024 * 1024
 WOULD_NOT_STOP = 3
@@ -37,7 +37,7 @@ def output(args):
 
 
 def listener():
-    """The process that holds Brento's port, or 0. On a Mac or Linux only this person's own processes are seen."""
+    """The process that holds Daytag's port, or 0. On a Mac or Linux only this person's own processes are seen."""
     number = address.port()
     if sys.platform == "win32":
         for line in output(["netstat", "-ano", "-p", "TCP"]).splitlines():
@@ -80,7 +80,7 @@ def installed():
 
 
 def ours(pid):
-    """Whether a process belongs to this copy of Brento: a program of its own on Windows, its server file elsewhere."""
+    """Whether a process belongs to this copy of Daytag: a program of its own on Windows, its server file elsewhere."""
     program = program_of(pid)
     if sys.platform == "win32":
         base = installed()
@@ -120,9 +120,9 @@ def end_helpers():
 
 
 def agent():
-    """The Mac's login service for Brento, when install.sh has set one up."""
+    """The Mac's login service for Daytag, when install.sh has set one up."""
     path = Path.home() / "Library" / "LaunchAgents" / (LABEL + ".plist")
-    return path if sys.platform == "darwin" and path.is_file() and not os.environ.get("BRENTO_PORT") else None
+    return path if sys.platform == "darwin" and path.is_file() and not os.environ.get("DAYTAG_PORT") else None
 
 
 def launchctl(*args):
@@ -141,15 +141,15 @@ def until(check, seconds):
     return check()
 
 
-def stop(any_brento=False):
-    """Stops this person's Brento. Without any_brento only the one from this folder, so removing one copy never stops
-    another. Someone else's Brento on the same computer is never touched."""
-    if agent() and (any_brento or str(HERE / "server.py") in agent().read_text(encoding="utf-8", errors="replace")):
-        # The service first, or it starts Brento again right away.
+def stop(any_daytag=False):
+    """Stops this person's Daytag. Without any_daytag only the one from this folder, so removing one copy never stops
+    another. Someone else's Daytag on the same computer is never touched."""
+    if agent() and (any_daytag or str(HERE / "server.py") in agent().read_text(encoding="utf-8", errors="replace")):
+        # The service first, or it starts Daytag again right away.
         launchctl("bootout", "gui/%d/%s" % (os.getuid(), LABEL))
     pid = listener()
     gone = True
-    if pid and (ours(pid) or (any_brento and address.whose() in ("mine", "older"))):
+    if pid and (ours(pid) or (any_daytag and address.whose() in ("mine", "older"))):
         try:
             os.kill(pid, signal.SIGTERM)
         except OSError:
@@ -170,7 +170,7 @@ def spawn():
         # The server writes to its log, which the windowless Python has no way to.
         exe = exe.with_name("python.exe")
     # UTF-8 whatever the computer's language, so a folder name with any letter in it can be written to the log.
-    forced = os.environ.get("BRENTO_PORT")
+    forced = os.environ.get("DAYTAG_PORT")
     args = [str(exe), "-X", "utf8", str(HERE / "server.py")] + (["--port", forced] if forced else [])
     extra = {"creationflags": NO_WINDOW | 0x200} if sys.platform == "win32" else {"start_new_session": True}
     with open(str(log), mode) as out:
@@ -188,7 +188,7 @@ def start_service(plist):
 
 
 def start():
-    """Makes sure this person's Brento runs. Returns '' or, in plain words, why it does not."""
+    """Makes sure this person's Daytag runs. Returns '' or, in plain words, why it does not."""
     def mine():
         # Asked anew each time: a server that finds the usual port taken moves to the next free one and writes it down.
         return address.whose() == "mine"
@@ -203,11 +203,11 @@ def start():
         launchctl("kickstart", "-k", "gui/%d/%s" % (os.getuid(), LABEL))
     if until(mine, 30):
         return ""
-    return "Brento did not start. What went wrong is in this file:\n%s" % (settings.home() / "server.log")
+    return "Daytag did not start. What went wrong is in this file:\n%s" % (settings.home() / "server.log")
 
 
 def app_window():
-    """A browser that shows Brento as its own window. Chrome first, because it holds the sign-ins of the dock's apps."""
+    """A browser that shows Daytag as its own window. Chrome first, because it holds the sign-ins of the dock's apps."""
     for rel in ("Google/Chrome/Application/chrome.exe", "Microsoft/Edge/Application/msedge.exe"):
         for key in ("ProgramFiles", "ProgramFiles(x86)", "LOCALAPPDATA"):
             path = Path(os.environ.get(key) or "") / rel
@@ -219,12 +219,12 @@ def app_window():
 def doorway(page):
     """A file only the owner can read that leads to the page. For a Mac that does not let scripts run."""
     path = settings.home() / "open.html"
-    address.private_file(path, '<!doctype html><meta charset="utf-8"><title>Brento</title><meta http-equiv="refresh" content="0;url=%s">\n' % page)
+    address.private_file(path, '<!doctype html><meta charset="utf-8"><title>Daytag</title><meta http-equiv="refresh" content="0;url=%s">\n' % page)
     return str(path)
 
 
 def show():
-    if os.environ.get("BRENTO_NO_BROWSER"):
+    if os.environ.get("DAYTAG_NO_BROWSER"):
         return
     page = address.entrance()
     if sys.platform == "win32":
@@ -253,28 +253,35 @@ def tell(text):
     """An ordinary message box. Nothing is asked."""
     if sys.stderr:
         print(text, file=sys.stderr)
-    if os.environ.get("BRENTO_NO_BROWSER"):
+    if os.environ.get("DAYTAG_NO_BROWSER"):
         return
     if sys.platform == "win32":
         import ctypes
-        ctypes.windll.user32.MessageBoxW(None, text, "Brento", 0x30)
+        ctypes.windll.user32.MessageBoxW(None, text, "Daytag", 0x30)
     elif sys.platform == "darwin":
-        script = ('on run argv\ntell current application to activate\ndisplay dialog (item 1 of argv) with title "Brento" '
+        script = ('on run argv\ntell current application to activate\ndisplay dialog (item 1 of argv) with title "Daytag" '
                   'buttons {"OK"} default button 1 with icon caution\nend run')
         subprocess.run(["/usr/bin/osascript", "-e", script, text], check=False, capture_output=True)
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="Opens Brento")
+    parser = argparse.ArgumentParser(description="Opens Daytag")
     parser.add_argument("--start", action="store_true", help="only start it, do not open it")
     parser.add_argument("--stop", action="store_true", help="stop the one from this folder")
-    parser.add_argument("--replace", action="store_true", help="stop whichever Brento this person has running first")
+    parser.add_argument("--replace", action="store_true", help="stop whichever Daytag this person has running first")
     args = parser.parse_args(argv)
     if args.stop:
         # A code of its own, so an installer can tell "would not stop" from a copy that is too broken to run at all.
         return 0 if stop() else WOULD_NOT_STOP
+    if args.start and not settings.starts_itself():
+        return 0
     if args.replace:
-        stop(any_brento=True)
+        stop(any_daytag=True)
+    elif settings.STORE and not args.start and address.whose() == "mine":
+        # The Daytag from GitHub is installed as well, and runs. Whoever opens this one means this one.
+        pid = listener()
+        if pid and not ours(pid):
+            stop(any_daytag=True)
     problem = start()
     if problem:
         # At sign-in nobody asked for anything, so nothing pops up.

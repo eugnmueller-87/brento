@@ -4,4 +4,6 @@ __pycache__/
 desktop/node_modules/
 dist/
 packaging/cache/
+# The Store's names belong to one account and are given when the package is built.
+packaging/store/identity.json
 node_modules/

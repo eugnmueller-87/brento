@@ -1,7 +1,36 @@
 # Changelog
 
 What changed in each version, newest first. Every version is on the
-[Releases](https://github.com/eugnmueller-87/brento/releases) page, with its installers.
+[Releases](https://github.com/eugnmueller-87/daytag/releases) page, with its installers.
+
+Up to 0.2.0 the program and its files had another name. All entries here use the new one.
+
+## 0.3.0 (2026-11-25)
+
+**A new name: Daytag.** It is a program of its own beside the older one and does not take over its settings. Remove the older
+one first (Mac: its Uninstall app, Windows: Settings, Apps), then open the new installer. The setup takes about two minutes.
+
+**New**
+
+- **Look around first:** the setup offers sample notes, so you see how Daytag looks before you connect anything.
+- **Microsoft Store:** Daytag can now be built as a Store package. Microsoft signs that one, so Windows asks no security
+  question, also where Smart App Control is on. It is in the Store only once Microsoft has let it in.
+- **Photo credits:** the settings list the authors and licenses of the photos on the cards.
+- **Privacy:** [PRIVACY.md](PRIVACY.md) lists what Daytag reads, keeps and sends, and how to stop each of it. It also has a
+  mail address for questions.
+
+**Safer**
+
+- On Windows the private calendar link and the Slack link are encrypted for your account. Another account or another
+  computer cannot read them.
+- The Ask box says that its answers come from an AI and can be wrong, and has a mail address to report one. Daytag switches off
+  Claude Code's own usage statistics and error reports for the questions it passes on.
+- What the browser keeps about cards you have seen is today's only, and no longer in words.
+
+**Fixed**
+
+- A settings file that is empty, for example after the power went off, no longer keeps Daytag from starting.
+- The search and the pop-ups no longer lead to pages you have switched off.
 
 ## 0.2.0 (2026-11-25)
 
@@ -9,32 +38,32 @@ One file to install, on Mac and Windows. **If you use 0.1.0, please update:** th
 holes, see *Safer*.
 
 Updating from 0.1.0: open the new installer. It keeps your setup and takes over the start at login. After that you can
-delete the unpacked 0.1.0 folder. From now on Brento opens with its icon: a browser has to be let in by it once, and
+delete the unpacked 0.1.0 folder. From now on Daytag opens with its icon: a browser has to be let in by it once, and
 bookmarks in that browser work after that. On a computer with several accounts it is once after each start, unless you
 decide otherwise in the settings.
 
 **New**
 
-- **Mac:** `Brento-Mac.pkg` opens Apple's own installer. **Windows:** `Brento-Windows.exe` opens a short guide. Both bring
+- **Mac:** `Daytag-Mac.pkg` opens Apple's own installer. **Windows:** `Daytag-Windows.exe` opens a short guide. Both bring
   everything along, Python and the GitHub program included. No Terminal.
-- **Signing in happens on the page.** For GitHub, Brento shows a one-time code and a button that copies it and opens
+- **Signing in happens on the page.** For GitHub, Daytag shows a one-time code and a button that copies it and opens
   GitHub, and says beforehand what GitHub will ask for. The Claude sign-in opens in your browser by itself. No Terminal
   or console window opens any more.
-- **Removing:** on a Mac through the app *Uninstall Brento*, on Windows through Settings, Apps. Both ask whether the
+- **Removing:** on a Mac through the app *Uninstall Daytag*, on Windows through Settings, Apps. Both ask whether the
   settings with your private links should go too.
-- **Two people on one computer** each get a Brento of their own.
+- **Two people on one computer** each get a Daytag of their own.
 
 **Safer**
 
-- Brento opens only for the person it belongs to. In 0.1.0 another account on the same computer could open it as well.
+- Daytag opens only for the person it belongs to. In 0.1.0 another account on the same computer could open it as well.
   A browser is let in by the icon, gets a word of its own, and signs every request with it without ever sending it. The
-  page checks in turn that it is Brento that answers.
-- A link on a web page can no longer make Brento look into a folder. In 0.1.0 it could, and on Windows a folder on a
+  page checks in turn that it is Daytag that answers.
+- A link on a web page can no longer make Daytag look into a folder. In 0.1.0 it could, and on Windows a folder on a
   stranger's server would have received an encrypted form of your Windows password.
 - The Ask box reads your notes folder and nothing else, and no settings files or hooks count. In 0.1.0 a notes folder from
   someone else could start a program, and a question could read other files. It is off until you switch it on; the setup
   no longer does that by itself.
-- A web page that lies among your notes gets none of Brento's rights. In 0.1.0 its scripts had them.
+- A web page that lies among your notes gets none of Daytag's rights. In 0.1.0 its scripts had them.
 - Addresses of apps you add to the dock yourself no longer go to Google's icon service, and GitHub's program is told not
   to send its usage reports.
 
@@ -42,7 +71,7 @@ decide otherwise in the settings.
 
 - The last page of the setup stays. In 0.1.0 it jumped back to the first one after a few seconds, and so did the setup
   after a break.
-- A notes folder that was renamed or is on a drive that is not connected no longer keeps Brento from starting. Brento
+- A notes folder that was renamed or is on a drive that is not connected no longer keeps Daytag from starting. Daytag
   says so, and you can choose the folder again.
 - *Connect* with an empty field no longer reports success, and a wrong calendar or Slack link no longer replaces one
   that works.
@@ -53,11 +82,11 @@ decide otherwise in the settings.
 - With nothing connected, Home says so instead of *All quiet*.
 - A folder that does not exist is said on the spot, and a copied path works with the quotes Windows puts around it.
 - A calendar or Slack link that was pasted is no longer lost when you click *Next* instead of *Connect*.
-- Notes that lie only in a cloud hold nothing up. Brento reads what is here, says how many are missing and fetches them
+- Notes that lie only in a cloud hold nothing up. Daytag reads what is here, says how many are missing and fetches them
   in the background. On a Mac it may fetch them from iCloud at all, which macOS does not allow a program that starts at
   login unless it asks for it.
 - A folder among the notes that cannot be opened is said, not skipped in silence.
-- A calendar that breaks off on its way counts as not read, and a date before 1970 in it no longer takes Brento down on
+- A calendar that breaks off on its way counts as not read, and a date before 1970 in it no longer takes Daytag down on
   Windows.
 - Meetings from other time zones show the right hour on Windows, and everywhere for Outlook calendars.
 - Outlook meetings with a link to a call reach Home, although Outlook's link names no guests.
@@ -68,7 +97,7 @@ decide otherwise in the settings.
 - Notes and tasks in folders called `raw`, `wiki`, `outputs` or `memory` are no longer left out in a new setup.
 - The Ask box is ready as soon as you have signed in to Claude for it at the end of the setup, and team boards show right
   after the GitHub sign-in.
-- When Brento refuses something a phone asks for, the phone always gets the reason.
+- When Daytag refuses something a phone asks for, the phone always gets the reason.
 
 Known gaps:
 
@@ -87,11 +116,11 @@ The first public version.
   board and your calendar. Every card says why it is there and how old its source is.
 - **Setup wizard:** one question per screen, with buttons for the GitHub sign-in, a new board, the calendar link and
   Slack.
-- **Windows installer:** double-click *Install Brento*. It finds or installs Python without admin rights and starts
-  Brento at every sign-in. Run it again from a newer version and it restarts Brento from there.
-- **Mac installer:** double-click *Install Brento.command*. Brento starts at every login and appears in Spotlight
+- **Windows installer:** double-click *Install Daytag*. It finds or installs Python without admin rights and starts
+  Daytag at every sign-in. Run it again from a newer version and it restarts Daytag from there.
+- **Mac installer:** double-click *Install Daytag.command*. Daytag starts at every login and appears in Spotlight
   and Launchpad. The GitHub program is downloaded from github.com and checked against its published checksums.
-- **Phone:** pair an iPhone, iPad or Android phone with a six-digit code and add Brento to its home screen. The
+- **Phone:** pair an iPhone, iPad or Android phone with a six-digit code and add Daytag to its home screen. The
   phone reads and asks; it cannot change the setup.
 - **Teams:** one shared board, everyone with their own notes and calendar. `team.json` carries the shared setup.
 - **Slack (optional):** a morning summary at the time you choose and a reminder before meetings.

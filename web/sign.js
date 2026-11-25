@@ -1,16 +1,16 @@
 /* How this browser shows that it was let in, without ever saying its word.
 
-   Brento's icon opens the page with a ticket. The page trades it once for a word of its own and keeps that in this
+   Daytag's icon opens the page with a ticket. The page trades it once for a word of its own and keeps that in this
    browser's storage, which no other address can read, not even another port on this computer. After that the word
-   never travels again: every request is signed with it, for one address and for one run of Brento, and the answer is
-   signed as well. So an open page neither believes a program that takes Brento's place nor tells it anything that is
+   never travels again: every request is signed with it, for one address and for one run of Daytag, and the answer is
+   signed as well. So an open page neither believes a program that takes Daytag's place nor tells it anything that is
    good for more. There is no cookie that a browser would send by itself. The limits are in docs/BLUEPRINT.md.
 
    SHA-256 and HMAC are written out here because a browser only offers its own on addresses it calls secure. */
 (function (root) {
   'use strict';
 
-  const KEY = 'brento:word';
+  const KEY = 'daytag:word';
   const K = [], H = [];
   const bits = (x) => ((x - Math.floor(x)) * 4294967296) | 0;
   for (let n = 2; K.length < 64; n += 1) {
@@ -74,5 +74,5 @@
 
   const api = { KEY, hash, hmac, header, answer };
   if (typeof module !== 'undefined') module.exports = api;
-  else root.BrentoSign = api;
+  else root.DaytagSign = api;
 })(this);

@@ -1,4 +1,4 @@
-"""Brento on a phone and on a Mac: pairing, the phone door's short list of routes, and the Mac's own setup paths."""
+"""Daytag on a phone and on a Mac: pairing, the phone door's short list of routes, and the Mac's own setup paths."""
 import hashlib
 import http.client
 import io
@@ -141,7 +141,7 @@ class PhoneDoor(unittest.TestCase):
             headers["Cookie"] = "%s=%s" % (phone.COOKIE, cookie)
         if body is not None:
             headers["Content-Type"] = kind
-            headers["X-Leitstand"] = "1"
+            headers["X-Daytag"] = "1"
         conn.request(method, path, body=body, headers=headers)
         r = conn.getresponse()
         out = (r.status, r.getheader("Set-Cookie") or "", r.read())
@@ -245,7 +245,7 @@ class MacSetup(unittest.TestCase):
         def which(name, path=None):
             calls.append(path)
             return None if path is None else "/opt/homebrew/bin/" + name
-        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(os.environ, {"BRENTO_HOME": tmp}), \
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(os.environ, {"DAYTAG_HOME": tmp}), \
                 mock.patch.object(settings, "system", return_value="darwin"), mock.patch.object(settings.shutil, "which", which):
             self.assertEqual(settings.find_exe("gh"), "/opt/homebrew/bin/gh")
         self.assertIn("/opt/homebrew/bin", calls[1].split(os.pathsep))

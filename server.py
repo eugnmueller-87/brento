@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Brento: a local, read-only face on the vault. Standard library only, no build step.
+"""Daytag: a local, read-only face on the vault. Standard library only, no build step.
 
 Only the unmodified `claude` program talks to a model, under the owner's own login. API
 credentials are stripped from its environment and the call is refused unless the login
@@ -28,6 +28,7 @@ import address
 import calendar_feed
 import library
 import phone
+import samples
 import settings
 import slack_notify
 import sources
@@ -65,7 +66,7 @@ CSP = ("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';
        "img-src 'self' data: https://www.google.com https://*.gstatic.com; "
        "connect-src 'self'; frame-src 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
 # A generated page from the vault brings its own inline script and style, and may reach nothing else.
-# The sandbox takes Brento's own rights away from it: it cannot reach another Brento window either.
+# The sandbox takes Daytag's own rights away from it: it cannot reach another Daytag window either.
 CSP_PAGE = ("sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; "
             "base-uri 'none'; frame-ancestors 'none'; form-action 'none'")
 LOOPBACK = {"127.0.0.1", "localhost", "::1"}
@@ -76,7 +77,7 @@ ASK_TOOLS = "Read,Grep,Glob"
 # write to cannot start a program, and no rule for other work opens other folders. What is not allowed is refused instead
 # of asked for, and reading ends at the notes folder.
 ASK_LOCK = ["--setting-sources", "", "--settings", str(HERE / "ask-settings.json"), "--permission-mode", "dontAsk"]
-ASK_SYSTEM = ("You are the ask box of Brento, %s local dashboard over this vault. You can only read. "
+ASK_SYSTEM = ("You are the ask box of Daytag, %s local dashboard over this vault. You can only read. "
               "Answer from the vault and name the note path behind each claim. If the vault does not say, reply "
               "'I don't know yet'. Lead with the one thing that matters, then at most five short bullets. Reply in "
               "the language of the question. No em dashes.")
@@ -110,6 +111,10 @@ class App:
         # Of its own, so the icon gets in also while a state is being built.
         self.ticket_lock = threading.Lock()
         self.ask_lock = threading.Lock()
+        # True once everything was deleted. Nothing may be answered then, because that would write some of it again.
+        self.over = False
+        # The Ask box's program while it answers.
+        self.answering = None
         self.hosts = LOOPBACK | {host.lower()} | {h.lower() for h in allow_hosts}
         # 127.0.0.1 belongs to everyone who is signed in to this computer, so the owner's key is asked for here too.
         self.key, self.tickets = address.load_key(self.home), {}
@@ -126,7 +131,7 @@ class App:
         """Reads the settings into the running server, so a saved setup shows without a restart."""
         vault = Path(profile["vault"]) if profile.get("vault") else (self.vault_arg or self.home / "notes")
         if not profile.get("vault"):
-            # Only Brento's own empty folder is made. A chosen folder that is gone must not come back as an empty one.
+            # Only Daytag's own empty folder is made. A chosen folder that is gone must not come back as an empty one.
             vault.mkdir(parents=True, exist_ok=True)
         words = sources.load_private(self.home / "private-terms.txt", required=profile["privacy"] == "required")
         sources.set_owner(profile.get("name", ""))
@@ -169,6 +174,7 @@ class App:
                                                        removed=removed, profile=self.profile, tasks=self.tasks)
                 self.state_cache["setupNeeded"] = self.needs_setup
                 self.state_cache["githubOwner"] = self.profile["board"]["owner"]
+                self.state_cache["contact"] = settings.CONTACT
                 # Not kept while something is still being read, so the next question gets more.
                 self.state_at = 0.0 if any(s["note"] == "still loading" for s in self.state_cache["sources"]) else time.time()
             return self.state_cache
@@ -206,12 +212,16 @@ class App:
         vault_name = Path(self.vault).name
         out = []
         for entry in entries:
-            if "{vault}" in entry["url"] and not self.profile.get("vault"):
-                # No vault chosen, so there is no Obsidian vault for the link to open.
+            if "{vault}" in entry["url"] and (not self.profile.get("vault") or self.sampled()):
+                # No vault chosen, or only the sample notes, so there is no Obsidian vault for the link to open.
                 continue
             url = entry["url"].replace("{vault}", quote(vault_name)) if "{vault}" in entry["url"] else entry["url"]
             out.append(dict(entry, url=url, added=url in have))
         return out
+
+    def sampled(self):
+        """Whether the notes are the sample notes."""
+        return self.profile.get("vault") == str(samples.folder(self.home).resolve())
 
     def setup_view(self):
         """Everything the setup page shows. Checks run here, so the page can say what is missing and how to fix it."""
@@ -221,13 +231,15 @@ class App:
                 "claude": self.auth() if settings.on(self.profile, "ask") else None,
                 "calendarConnected": self.calendar.connected(), "privacyWords": self.privacy_words, "shared": self.shared,
                 "catalog": self.catalog(), "slackConnected": self.slack.connected(), "slackError": self.slack.error,
-                "slackCreate": slack_notify.CREATE_URL}
+                "slackCreate": slack_notify.CREATE_URL, "store": settings.STORE, "twice": settings.twice(),
+                "sample": str(samples.folder(self.home).resolve())}
 
     def save_setup(self, body):
         """Saves the settings and adds the chosen tools. Tools only ever get added here, never removed:
         the dock's own menu removes one, so nothing set up by hand disappears with a setup save."""
         given = body.get("profile") if isinstance(body.get("profile"), dict) else {}
-        merged = dict(self.profile, **{k: v for k, v in given.items() if k in ("name", "vault", "tasks", "slack", "keepBrowsers")})
+        merged = dict(self.profile, **{k: v for k, v in given.items() if k in ("name", "vault", "tasks", "slack", "keepBrowsers",
+                                                                               "autostart")})
         # Only the sources that are named change, and of those only what is named. A page that has been open for a while
         # must not put back what was changed elsewhere.
         if isinstance(given.get("sources"), dict):
@@ -239,6 +251,8 @@ class App:
             merged["board"] = dict(self.profile["board"], **given["board"])
         # A notes folder that is away at the moment must not keep anything else from being saved.
         profile = settings.save(merged, same_vault="vault" not in given or given["vault"] == self.profile["vault"])
+        if profile["vault"] != self.profile["vault"]:
+            self.slack.relearn()
         added = []
         wanted = {str(t) for t in body.get("tools") or []}
         board = profile["board"]
@@ -268,10 +282,32 @@ class App:
                     team=self.team, orgs=wizard.orgs() if gh["ready"] else [],
                     slackConnected=self.slack.connected(), slackCreate=slack_notify.CREATE_URL,
                     platform=sys.platform, signin=wizard.SIGNIN.view(),
-                    canInstall=sys.platform in ("darwin", "linux", "win32"))
+                    canInstall=sys.platform in ("darwin", "linux", "win32") and not settings.STORE)
+
+    def forget(self):
+        """Deletes what this Daytag saved and ends it, for someone who removes it from the computer."""
+        self.phones.switch(False)
+        self.phone_listen()
+        self.over = True
+        left = settings.forget()
+        self.quit()
+        return left
+
+    def quit(self):
+        """Ends Daytag, a moment later, so the answer still gets out, and what it has started and still runs."""
+        self.over = True
+        wizard.SIGNIN.end()
+        if self.answering is not None:
+            self.answering.kill()
+        ends = threading.Timer(1.0, os._exit, args=(0,))
+        ends.daemon = True
+        ends.start()
 
     def phone_listen(self):
         """Opens or closes the phone door to match the setting. The computer's own page stays on loopback."""
+        if settings.STORE:
+            # The door speaks plain http. What the Store publishes may not send what is personal unencrypted.
+            return
         with self.phone_lock:
             if self.phones.on and not self.phone_server:
                 try:
@@ -293,6 +329,8 @@ class App:
         return self.phones.view(self.port + 1, self.phone_error)
 
     def phone_action(self, action):
+        if settings.STORE:
+            raise ValueError("The Daytag from the Microsoft Store has no phone door.")
         if action == "on":
             self.phones.switch(True)
             self.phone_listen()
@@ -315,7 +353,7 @@ class App:
         """Create a board, or read one the owner picked, and map its fields. Nothing is saved until Finish."""
         action = body.get("action")
         if action == "create":
-            return wizard.create_board(body.get("title") or "Brento", str(body.get("org") or ""))
+            return wizard.create_board(body.get("title") or "Daytag", str(body.get("org") or ""))
         owner, kind = str(body.get("owner") or "").strip(), "org" if body.get("ownerType") == "org" else "user"
         try:
             number = int(body.get("number") or 0)
@@ -324,7 +362,7 @@ class App:
         if not settings.GH_LOGIN.match(owner) or number <= 0:
             raise ValueError("Pick a board from the list.")
         if action == "lanes":
-            # The owner asked for Brento's lane field on their own board. Only adds a field.
+            # The owner asked for Daytag's lane field on their own board. Only adds a field.
             wizard.add_fields(owner, number, lanes=True, area=False, due=False)
         probe = sources.probe_board(owner, number, kind)
         if probe.get("error"):
@@ -338,9 +376,12 @@ class App:
             time.sleep(30)
             try:
                 # Before the setup is finished nothing has been read, and a message would say that all is calm.
-                if self.slack.connected() and not self.needs_setup:
-                    self.slack.tick(self.state(), self.profile.get("slack") or settings.clean_slack(None),
-                                    self.profile.get("name", ""))
+                if self.slack.connected() and not self.needs_setup and not self.over:
+                    slack = self.profile.get("slack") or settings.clean_slack(None)
+                    if self.sampled():
+                        # Made-up tasks are nobody's business in a channel.
+                        slack = dict(slack, sources=[s for s in slack["sources"] if s != "tasks"])
+                    self.slack.tick(self.state(), slack, self.profile.get("name", ""))
             except Exception as exc:  # the loop must outlive any one bad tick
                 self.slack.error = "Slack: %s" % type(exc).__name__
 
@@ -435,6 +476,8 @@ def locked_env():
     env = dict(os.environ)
     for name in BILLING_ENV:
         env.pop(name, None)
+    # What Daytag starts by itself reports nothing about its use.
+    env.update(DISABLE_TELEMETRY="1", DISABLE_ERROR_REPORTING="1")
     return env
 
 
@@ -463,7 +506,7 @@ def web_version():
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "Brento"
+    server_version = "Daytag"
     sys_version = ""
     app = None
     # True on the phone door. The same page, with less it may do.
@@ -484,7 +527,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def end_headers(self):
         if self.proof:
-            # Only Brento knows the browser's word as well, so the page can tell it from a program that took its address.
+            # Only Daytag knows the browser's word as well, so the page can tell it from a program that took its address.
             self.send_header(address.ANSWER_HEADER, self.proof)
         super().end_headers()
 
@@ -529,7 +572,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def not_let_in(self):
         """The run goes along: a browser that was let in signs for it and asks again. It is of no use to anyone else."""
-        self.send_json({"error": "Open Brento with its icon.", "locked": True}, 401, X_Brento_Run=self.app.browsers.run)
+        self.send_json({"error": "Open Daytag with its icon.", "locked": True}, 401, X_Daytag_Run=self.app.browsers.run)
 
     def enter(self, body):
         """The launcher's ticket, or the key itself from another computer, for a word of this browser's own."""
@@ -548,6 +591,9 @@ class Handler(BaseHTTPRequestHandler):
     def gate(self, url):
         """Refuses foreign Host headers (DNS rebinding) and anything that does not come from the owner. The page's own
         files are open: there is nothing in them, and the page asks for everything else."""
+        if getattr(self.app, "over", False):
+            self.send_json({"error": "Daytag ends."}, 503)
+            return False
         if self.phone:
             return self.phone_gate(url)
         if not self.host_allowed():
@@ -577,7 +623,7 @@ class Handler(BaseHTTPRequestHandler):
                 # A bookmark of such a page. The frame holds nothing: it asks for the seal and goes on (app.js).
                 self.send_static("/")
                 return False
-        if self.command == "GET" and url.path == "/api/state" and self.headers.get("X-Leitstand") != "1":
+        if self.command == "GET" and url.path == "/api/state" and self.headers.get("X-Daytag") != "1":
             # A page of 0.1.0 that is still open: it sees that the code has changed and loads the new one.
             self.send_json({"locked": True, "webVersion": web_version()})
             return False
@@ -595,7 +641,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.app.phones.known(cookie(self.headers.get("Cookie"), phone.COOKIE)):
             if phone.allowed(self.command, url.path):
                 return True
-            self.send_json({"error": "Only on the computer. Change this in Brento there."}, 403)
+            self.send_json({"error": "Only on the computer. Change this in Daytag there."}, 403)
             return False
         if self.command == "GET" and url.path in phone.OPEN_PATHS:
             return True
@@ -640,7 +686,7 @@ class Handler(BaseHTTPRequestHandler):
         if not self.gate(url):
             return
         # Not asked of a phone: its short list of routes does nothing on the computer, and an older page may be open there.
-        if url.path.startswith("/api/") and url.path not in PLAIN_GETS and not self.phone and self.headers.get("X-Leitstand") != "1":
+        if url.path.startswith("/api/") and url.path not in PLAIN_GETS and not self.phone and self.headers.get("X-Daytag") != "1":
             self.send_json({"error": "cross-site request refused"}, 403)
             return
         if url.path in STATIC:
@@ -743,12 +789,12 @@ class Handler(BaseHTTPRequestHandler):
         if not self.gate(url):
             return
         if url.path not in ("/api/ask", "/api/tools", "/api/calendar", "/api/refresh", "/api/open", "/api/setup",
-                            "/api/setup/board", "/api/wizard/board", "/api/wizard/open", "/api/slack", "/api/team",
-                            "/api/phone", "/api/ticket", "/api/enter"):
+                            "/api/setup/board", "/api/wizard/board", "/api/wizard/open", "/api/wizard/sample", "/api/slack",
+                            "/api/team", "/api/phone", "/api/ticket", "/api/enter", "/api/forget", "/api/quit", "/api/remove-other"):
             self.send_json({"error": "not found"}, 404)
             return
         origin = urlsplit(self.headers.get("Origin") or "").netloc
-        if self.headers.get("X-Leitstand") != "1" or (origin and origin != self.headers.get("Host")):
+        if self.headers.get("X-Daytag") != "1" or (origin and origin != self.headers.get("Host")):
             self.send_json({"error": "cross-site request refused"}, 403)
             return
         try:
@@ -798,6 +844,39 @@ class Handler(BaseHTTPRequestHandler):
             except (ValueError, OSError) as exc:
                 self.send_json({"error": str(exc)}, 400)
             return
+        if url.path == "/api/wizard/sample":
+            try:
+                self.send_json({"path": str(samples.write(self.app.home, time_today()).resolve())})
+            except OSError as exc:
+                self.send_json({"error": "The sample notes could not be written: %s" % exc}, 400)
+            return
+        if url.path == "/api/forget":
+            # Only where Windows removes the program and leaves the settings. The other installers ask by themselves.
+            if not settings.STORE or body.get("delete") is not True:
+                self.send_json({"error": "Nothing was deleted."}, 400)
+                return
+            self.send_json({"deleted": True, "left": self.app.forget()})
+            return
+        if url.path == "/api/quit":
+            # Only where it can be opened again by its icon and nothing starts it by itself at once.
+            if not settings.STORE:
+                self.send_json({"error": "Nothing was ended."}, 400)
+                return
+            self.app.quit()
+            self.send_json({"ended": True})
+            return
+        if url.path == "/api/remove-other":
+            # Opens the uninstaller of the Daytag from GitHub. That one asks before it removes anything.
+            program = settings.remover()
+            try:
+                if not program:
+                    raise OSError("It is not there any more.")
+                os.startfile(program)
+            except OSError as exc:
+                self.send_json({"error": str(exc)}, 400)
+                return
+            self.send_json({"opened": True})
+            return
         if url.path == "/api/team":
             # The team lead's setup as team.json next to the code: board, apps, calendar kind, Slack timing.
             # Nothing personal goes in: no vault, no name, no link with a key.
@@ -824,11 +903,11 @@ class Handler(BaseHTTPRequestHandler):
                 if body.get("disconnect"):
                     self.app.slack.disconnect()
                 elif body.get("test"):
-                    error = self.app.slack.send("A test from Brento. All good.")
+                    error = self.app.slack.send("A test from Daytag. All good.")
                     if error:
                         raise ValueError(error)
                 else:
-                    self.app.slack.connect(body.get("url"), "Brento is connected. Your morning summary and reminders come to this channel.")
+                    self.app.slack.connect(body.get("url"), "Daytag is connected. Your morning summary and reminders come to this channel.")
                 self.send_json({"connected": self.app.slack.connected()})
             except ValueError as exc:
                 self.send_json({"error": str(exc)}, 400)
@@ -869,7 +948,7 @@ class Handler(BaseHTTPRequestHandler):
         if url.path == "/api/tools":
             if self.phone and body.get("action") != "card":
                 # From a phone only "remove this card from Home". The dock is changed on the computer.
-                self.send_json({"error": "Only on the computer. Change the dock in Brento there."}, 403)
+                self.send_json({"error": "Only on the computer. Change the dock in Daytag there."}, 403)
                 return
             try:
                 self.app.tools.apply(body)
@@ -920,6 +999,7 @@ class Handler(BaseHTTPRequestHandler):
         proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                                 cwd=str(self.app.vault), env=locked_env(), encoding="utf-8", errors="replace",
                                 creationflags=sources.NO_WINDOW)
+        self.app.answering = proc
         timer = threading.Timer(ASK_TIMEOUT, proc.kill)
         timer.start()
         wrote_text = False
@@ -975,7 +1055,7 @@ class Server(ThreadingHTTPServer):
 
     def server_bind(self):
         # Python's own version also looks this computer's name up before it listens. Nothing here needs the name, and
-        # on a computer whose network does not answer, Brento would not open until the lookup gives up.
+        # on a computer whose network does not answer, Daytag would not open until the lookup gives up.
         socketserver.TCPServer.server_bind(self)
         self.server_name, self.server_port = self.server_address[:2]
 
@@ -993,13 +1073,13 @@ class PhoneServer(Server):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Brento")
-    parser.add_argument("--vault", default=os.environ.get("BRENTO_VAULT") or os.environ.get("LEITSTAND_VAULT"),
+    parser = argparse.ArgumentParser(description="Daytag")
+    parser.add_argument("--vault", default=os.environ.get("DAYTAG_VAULT"),
                         help="only needed before the setup has run; the setup's vault wins once it is saved")
     parser.add_argument("--host", default="127.0.0.1", help="anything but loopback requires the access key")
     parser.add_argument("--port", type=int, default=0, help="only this port; without it, the usual one or the next free one")
     parser.add_argument("--allow-host", action="append", default=[], help="extra Host header to accept, for example a Tailscale name")
-    parser.add_argument("--model", default=os.environ.get("LEITSTAND_MODEL", "sonnet"))
+    parser.add_argument("--model", default=os.environ.get("DAYTAG_MODEL", "sonnet"))
     args = parser.parse_args()
     vault = None
     if args.vault:
@@ -1019,23 +1099,23 @@ def main():
         except OSError as exc:
             # Ending cleanly keeps a login service from starting it again and again.
             if args.port or args.host not in LOOPBACK or address.whose(number, timeout=10) == "mine":
-                print("Port %d is in use, so this Brento is not started (%s)." % (number, exc), flush=True)
+                print("Port %d is in use, so this Daytag is not started (%s)." % (number, exc), flush=True)
                 return
             # Another person on this computer, or another program: the next port.
     if server is None:
-        print("No port from %d on is free, so Brento is not started." % address.FIRST, flush=True)
+        print("No port from %d on is free, so Daytag is not started." % address.FIRST, flush=True)
         return
     app.port = number
     if number != numbers[0]:
         # Something else answers at the usual address, and a browser may have opened that. What it keeps for that address
-        # must not open anything once Brento is back there.
+        # must not open anything once Daytag is back there.
         app.browsers.forget()
     if not args.port and number != address.port():
         address.keep(number)
     threading.Thread(target=app.notify_loop, daemon=True).start()
     app.phone_listen()
     way = "?ticket=" + app.ticket() if args.host in LOOPBACK else "?key=" + app.key
-    print("Brento reads %s (settings in %s)\nOpen http://%s:%d/%s" % (app.vault, app.home, args.host, number, way), flush=True)
+    print("Daytag reads %s (settings in %s)\nOpen http://%s:%d/%s" % (app.vault, app.home, args.host, number, way), flush=True)
     server.serve_forever()
 
 

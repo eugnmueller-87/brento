@@ -1,4 +1,4 @@
-"""Whose Brento this is and what it reads. One JSON file in the owner's home folder, nothing in the repo.
+"""Whose Daytag this is and what it reads. One JSON file in the owner's home folder, nothing in the repo.
 
 A fresh install has no file, so the page opens the setup. Every source can be switched off. A source that is
 off is not shown at all; a source that is on but cannot be read still shows N/A, never an empty success.
@@ -10,19 +10,25 @@ import re
 import shutil
 import sys
 import threading
+import time
 from pathlib import Path
 
+import samples
+
 VERSION = 1
+# Where people reach whoever publishes this Daytag, for a bad answer of the Ask box or a question about privacy. Empty means
+# the public page for problems on GitHub, which needs an account there.
+CONTACT = "eugnmueller@googlemail.com"
 NAME = re.compile(r"^[^\x00-\x1f<>\"\\]{1,40}$")
 GH_LOGIN = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$")
 FIELD = re.compile(r"^[\w .\-äöüÄÖÜß]{1,40}$")
 REPO = re.compile(r"^[A-Za-z0-9-]{1,39}/[A-Za-z0-9._-]{1,100}$")
 WORKFLOW = re.compile(r"^[A-Za-z0-9._-]{1,100}\.ya?ml$")
 
-# What Brento can read. "path" is a note inside the vault, for sources whose notes have a fixed shape.
+# What Daytag can read. "path" is a note inside the vault, for sources whose notes have a fixed shape.
 SOURCES = [
     {"id": "library", "label": "Obsidian notes", "group": "Obsidian", "vault": True, "new": True,
-     "about": "Every note readable inside Brento, with topics, folders, tags, search and backlinks. Read only."},
+     "about": "Every note readable inside Daytag, with topics, folders, tags, search and backlinks. Read only."},
     {"id": "tasks", "label": "Obsidian tasks with a date", "group": "Obsidian", "vault": True, "new": True,
      "about": "Open checkboxes with a due date become your deadlines: Tasks plugin (📅 2026-11-30), "
               "Dataview ([due:: 2026-11-30]) or @due(2026-11-30)."},
@@ -33,7 +39,7 @@ SOURCES = [
      "about": "Cards in the lanes HIGH, MID and LOW. A HIGH card with a date inside a week reaches Home."},
     {"id": "ask", "label": "Ask box (Claude Code)", "group": "Assistant", "vault": True, "new": False,
      "about": "Questions about your notes, answered by the claude program on this computer under your own "
-              "Claude login. Brento never sees or stores that login."},
+              "Claude login. Daytag never sees or stores that login."},
     {"id": "openItems", "label": "Open matters table", "group": "Notes with a fixed shape", "vault": True, "new": False,
      "path": "Open matters.md",
      "about": "A table with the columns Matter, Next step, Owner, Due, Note. Rows where you are the owner "
@@ -59,16 +65,15 @@ _lock = threading.Lock()
 
 
 def home():
-    """An install from before the setup keeps its folder, ~/.leitstand. A new install gets ~/.brento."""
-    forced = os.environ.get("BRENTO_HOME")
+    """The folder everything is kept in."""
+    forced = os.environ.get("DAYTAG_HOME")
     if forced:
         return Path(forced).expanduser()
-    old = Path.home() / ".leitstand"
-    return old if old.is_dir() else Path.home() / ".brento"
+    return Path.home() / ".daytag"
 
 
 def path():
-    return home() / "brento.json"
+    return home() / "daytag.json"
 
 
 # Folders that were always left out of notes and tasks. Settings from before the choice keep them out.
@@ -98,7 +103,7 @@ def clean_rel(value, default):
 def normalize(data, saved=False):
     """Fills every gap with its default and refuses what could not be meant. Raises ValueError with a reason.
     Saved settings keep a notes folder that is not there at the moment: it was renamed, or its drive is not plugged in.
-    Brento then starts without those notes and says so, and the owner can choose the folder again."""
+    Daytag then starts without those notes and says so, and the owner can choose the folder again."""
     data = dict(data or {})
     out = {"version": VERSION}
     name = str(data.get("name") or "").strip()
@@ -117,6 +122,8 @@ def normalize(data, saved=False):
     out["privacy"] = "required" if data.get("privacy") == "required" else "optional"
     # Off by itself where other people have an account on this computer, see address.Browsers.
     out["keepBrowsers"] = data.get("keepBrowsers") is True
+    # Only asked for in the Daytag from the Store. Elsewhere the installer asks.
+    out["autostart"] = data.get("autostart") is True
     skip = data.get("skip") if isinstance(data.get("skip"), list) else OLD_SKIP
     out["skip"] = [name for name in (str(s).strip() for s in skip) if name and len(name) <= 80 and not re.search(r"[\\/]", name)][:30]
     given = data.get("sources") or {}
@@ -210,7 +217,7 @@ def load_team(folder):
     try:
         return clean_team(json.loads(target.read_text(encoding="utf-8-sig")))
     except ValueError as exc:
-        raise SystemExit("Brento did not start: %s cannot be used: %s" % (target, exc))
+        raise SystemExit("Daytag did not start: %s cannot be used: %s" % (target, exc))
 
 
 def save_team(folder, data):
@@ -241,6 +248,26 @@ def clean_slack(value):
 
 # Programs the installer brought along, next to the code. A copy of the source code has no such folder.
 BUNDLED_BIN = Path(__file__).resolve().parent / "bin"
+# Daytag from the Microsoft Store: its manifest lies beside the program. Windows then starts, updates and removes Daytag,
+# and nobody can write into the program's folder.
+STORE = (Path(__file__).resolve().parent.parent / "AppxManifest.xml").is_file()
+# What Daytag keeps in its own folder. Anything else there is the owner's.
+OWN_FILES = ("daytag.json", "access-key", "browsers.json", "port", "calendar-url", "slack-webhook", "slack-state.json",
+             "phone.json", "tools.json", "open.html")
+
+
+def twice():
+    """Whether the Daytag from GitHub is installed beside the one from the Store. Both would start at sign-in."""
+    base = os.environ.get("LOCALAPPDATA")
+    return STORE and bool(base) and (Path(base) / "Programs" / "Daytag" / "app" / "launcher.py").is_file()
+
+
+def remover():
+    """What removes the Daytag from GitHub, after asking. In Windows' list of apps both have the same name and publisher."""
+    found = sorted((Path(os.environ["LOCALAPPDATA"]) / "Programs" / "Daytag").glob("unins*.exe")) if twice() else []
+    return str(found[-1]) if found else ""
+
+
 # Where a Mac or Linux keeps programs that a login service's short PATH does not list: Homebrew, the native
 # Claude Code installer, npm.
 EXTRA_BIN = ("/opt/homebrew/bin", "/usr/local/bin", "~/.local/bin", "~/.claude/local", "~/.npm-global/bin", "~/bin")
@@ -260,8 +287,8 @@ def apple_tools():
 
 def find_exe(name):
     """A program on the PATH. On Windows the PATH is read fresh from the registry as well, so a program the setup
-    just installed is found without restarting Brento. On a Mac or Linux the usual folders are searched too.
-    Last come Brento's own two folders: the one it downloads into and the one the installer filled."""
+    just installed is found without restarting Daytag. On a Mac or Linux the usual folders are searched too.
+    Last come Daytag's own two folders: the one it downloads into and the one the installer filled."""
     found = shutil.which(name)
     if found == "/usr/bin/git" and system() == "darwin" and not apple_tools():
         found = None
@@ -302,10 +329,13 @@ def load():
         text = target.read_text(encoding="utf-8-sig")
     except FileNotFoundError:
         return None
+    if not text.strip():
+        # Nothing is in it: a computer that went off in the wrong moment. There is nothing to lose, so the setup starts.
+        return None
     try:
         return normalize(json.loads(text), saved=True)
     except ValueError as exc:
-        raise SystemExit("Brento did not start: %s cannot be used: %s" % (target, exc))
+        raise SystemExit("Daytag did not start: %s cannot be used: %s" % (target, exc))
 
 
 def save(data, same_vault=False):
@@ -317,6 +347,61 @@ def save(data, same_vault=False):
         temp.write_text(json.dumps(clean, ensure_ascii=False, indent=2), encoding="utf-8")
         os.replace(str(temp), str(target))
     return clean
+
+
+def starts_itself():
+    """Whether Daytag may start at sign-in. Windows starts the one from the Store in any case, so that one asks first, in
+    its setup, and goes no further without a yes. The other installers ask by themselves."""
+    if not STORE:
+        return True
+    try:
+        saved = load()
+    except SystemExit:
+        return False
+    return bool(saved and saved["autostart"])
+
+
+def gone(path):
+    """Deletes one file. A virus scanner may hold it for a moment, so it is tried a few times."""
+    for wait in (0, 0.1, 0.3, 0.6):
+        time.sleep(wait)
+        try:
+            path.unlink()
+            return True
+        except FileNotFoundError:
+            return True
+        except OSError:
+            pass
+    return False
+
+
+def forget():
+    """Deletes what Daytag saved on this computer, for someone who removes it. What the owner put there stays. Returns the
+    names of what could not be deleted."""
+    base, left = home(), []
+    for name in OWN_FILES:
+        left += [path.name for path in (base / name, (base / name).with_suffix(".tmp")) if not gone(path)]
+    log = base / "server.log"
+    try:
+        log.unlink()
+    except FileNotFoundError:
+        pass
+    except OSError:
+        # The running server writes to it, and Windows does not delete a file that is open. An empty one stays.
+        try:
+            open(str(log), "wb").close()
+        except OSError:
+            left.append(log.name)
+    for name in ("gh", "gh.exe", "gh.part", "gh.exe.part"):
+        gone(base / "bin" / name)
+    samples.remove(base)
+    for folder in (base / "bin", base / "notes", base):
+        try:
+            # Only when it is empty.
+            folder.rmdir()
+        except OSError:
+            pass
+    return left
 
 
 def on(profile, sid):

@@ -1,7 +1,7 @@
-"""Brento in Slack: a morning summary, a note when something new needs you, a reminder before a meeting.
+"""Daytag in Slack: a morning summary, a note when something new needs you, a reminder before a meeting.
 
 Through an incoming webhook the owner makes in their own Slack: free, one channel, nothing hosted. The link
-is a secret, so it lives in one file in Brento's folder, is never sent back to a page and never appears in
+is a secret, so it lives in one file in Daytag's folder, is never sent back to a page and never appears in
 an error. What goes out has passed the privacy list already, and open matters stay home unless chosen.
 """
 import json
@@ -13,11 +13,12 @@ import urllib.request
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
+import secret
 from tools import card_key
 
 HOOK = re.compile(r"^https://hooks\.slack\.com/services/[A-Za-z0-9]+/[A-Za-z0-9]+/[A-Za-z0-9]+$")
 # The app the owner creates from one link. Only keys Slack documents: a name and incoming webhooks switched on.
-MANIFEST = {"display_information": {"name": "Brento", "description": "Your day from Brento: what needs you, and when."},
+MANIFEST = {"display_information": {"name": "Daytag", "description": "Your day from Daytag: what needs you, and when."},
             "settings": {"incoming_webhooks": {"incoming_webhooks_enabled": True}}}
 CREATE_URL = "https://api.slack.com/apps?new_app=1&manifest_json=" + urllib.parse.quote(json.dumps(MANIFEST))
 # How late a morning summary may still go out, for a computer that was off at the set time.
@@ -80,7 +81,7 @@ def plan(state, cfg, memory, now, name=""):
     else:
         fresh = [a for a, k in zip(alerts, keys) if k not in seen]
         if cfg.get("alerts") and fresh:
-            head = "*New in Brento*" if len(fresh) == 1 else "*%d new things in Brento*" % len(fresh)
+            head = "*New in Daytag*" if len(fresh) == 1 else "*%d new things in Daytag*" % len(fresh)
             out.append("\n".join([head] + [line(a) for a in fresh[:MAX_LINES]]))
         memory["seen"] = (seen + [k for k in keys if k not in seen])[-MAX_SEEN:]
 
@@ -105,7 +106,7 @@ def plan(state, cfg, memory, now, name=""):
     reminded = list(memory.get("reminded") or [])
     if remind and "calendar" in allowed:
         for event in state.get("events", []):
-            # A time in a zone Brento does not know is not a time to ring at.
+            # A time in a zone Daytag does not know is not a time to ring at.
             if event.get("date") != today or not event.get("time") or event.get("zone") or not event_matters(event):
                 continue
             start = datetime.combine(now.date(), datetime.strptime(event["time"], "%H:%M").time())
@@ -137,7 +138,7 @@ def summary(state, alerts, name, missing=()):
         body = ["%d thing%s need%s you:" % (len(alerts), "" if len(alerts) == 1 else "s", "s" if len(alerts) == 1 else "")]
         body += [line(a) for a in alerts[:MAX_LINES]]
         if len(alerts) > MAX_LINES:
-            body.append("…and %d more in Brento." % (len(alerts) - MAX_LINES))
+            body.append("…and %d more in Daytag." % (len(alerts) - MAX_LINES))
     counts = (state.get("schedule") or {}).get("counts") or {}
     loose = []
     if counts.get("prep"):
@@ -158,7 +159,7 @@ class Slack:
 
     def url(self):
         try:
-            return self.hook_path.read_text(encoding="utf-8-sig").strip()
+            return secret.shown(self.hook_path.read_text(encoding="utf-8-sig"))
         except OSError:
             return ""
 
@@ -172,7 +173,7 @@ class Slack:
         if error:
             raise ValueError(error)
         self.hook_path.parent.mkdir(parents=True, exist_ok=True)
-        self.hook_path.write_text(url, encoding="utf-8")
+        self.hook_path.write_text(secret.hidden(url), encoding="utf-8")
         try:
             self.hook_path.chmod(0o600)
         except OSError:
@@ -195,7 +196,7 @@ class Slack:
         if not url:
             return "Slack is not connected."
         body = json.dumps({"text": text}).encode("utf-8")
-        request = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json", "User-Agent": "Brento"})
+        request = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json", "User-Agent": "Daytag"})
         try:
             with urllib.request.urlopen(request, timeout=15) as res:
                 ok = res.status == 200
@@ -206,6 +207,19 @@ class Slack:
             return self.error
         self.error = "" if ok else "Slack did not take the message."
         return self.error
+
+    def relearn(self):
+        """Other notes are read from now on. What is in them is not news."""
+        with self.lock:
+            try:
+                memory = json.loads(self.memory_path.read_text(encoding="utf-8"))
+                memory.update(seeded=False)
+                memory.pop("learning", None)
+                temp = self.memory_path.with_suffix(".tmp")
+                temp.write_text(json.dumps(memory), encoding="utf-8")
+                temp.replace(self.memory_path)
+            except (OSError, ValueError, AttributeError):
+                pass
 
     def tick(self, state, cfg, name="", now=None):
         """Called about every half minute. Sends what plan() says and keeps its memory on disk."""

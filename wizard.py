@@ -1,7 +1,7 @@
 """What the first-start wizard needs: guesses, checks, and the few things it does on the owner's click.
 
 It guesses what it can (name, vault, board fields), so the owner mostly clicks Next. Where something has to
-happen outside Brento (fetch the GitHub program, sign in), it runs the official program without any window, with a
+happen outside Daytag (fetch the GitHub program, sign in), it runs the official program without any window, with a
 fixed command, and the page shows what to do and checks again until it is done. Nothing here runs without a click.
 """
 import getpass
@@ -24,7 +24,7 @@ from urllib.parse import urlsplit
 import settings
 import sources
 
-# The board Brento makes for a new owner: its own lane field, because a project's built-in Status field
+# The board Daytag makes for a new owner: its own lane field, because a project's built-in Status field
 # cannot be given new options from the command line.
 LANE_FIELD = "Lane"
 LANES = "HIGH,MID,LOW,Done"
@@ -43,11 +43,11 @@ ACTIONS = {
 }
 NO_WINDOW = sources.NO_WINDOW
 # GitHub's program prints a one-time code, and the owner types it on GitHub's own page. The code is the only thing
-# Brento reads off a sign-in: the logins themselves stay inside the two programs.
+# Daytag reads off a sign-in: the logins themselves stay inside the two programs.
 GH_CODE = re.compile(r"\b([A-Z0-9]{4}-[A-Z0-9]{4})\b")
 GH_DEVICE = "https://github.com/login/device"
 SIGN_IN_LIMIT = 15 * 60
-# The installers bring the GitHub program along. Without it, Brento fetches the official one from its own GitHub
+# The installers bring the GitHub program along. Without it, Daytag fetches the official one from its own GitHub
 # releases, checks it against the release's checksum list, and keeps the one program in its folder. No admin rights.
 GH_RELEASE = "https://api.github.com/repos/cli/cli/releases/latest"
 GH_HOSTS = ("api.github.com", "github.com")
@@ -84,7 +84,7 @@ def checksum_for(text, name):
 
 
 def extract_gh(data, name, target):
-    """Takes only bin/gh out of the archive and writes it where Brento chose, never to a path the archive names."""
+    """Takes only bin/gh out of the archive and writes it where Daytag chose, never to a path the archive names."""
     if name.endswith(".zip"):
         with zipfile.ZipFile(io.BytesIO(data)) as archive:
             member = next((m for m in archive.namelist() if re.search(r"(^|/)bin/gh(\.exe)?$", m)), None)
@@ -107,9 +107,9 @@ def extract_gh(data, name, target):
 
 def fetch_https(url):
     if urlsplit(url).scheme != "https" or urlsplit(url).hostname not in GH_HOSTS:
-        raise ValueError("Brento only downloads from github.com.")
+        raise ValueError("Daytag only downloads from github.com.")
     accept = "application/vnd.github+json" if "api.github.com" in url else "application/octet-stream"
-    request = urllib.request.Request(url, headers={"User-Agent": "Brento-setup", "Accept": accept})
+    request = urllib.request.Request(url, headers={"User-Agent": "Daytag-setup", "Accept": accept})
     with urllib.request.urlopen(request, timeout=90) as answer:
         return answer.read(MAX_DOWNLOAD)
 
@@ -126,10 +126,10 @@ def install_gh(fetch=fetch_https, system=None, machine=None, target=None):
         sums = next((n for n in assets if str(n).endswith("_checksums.txt")), None)
         want = checksum_for(fetch(assets[sums]).decode("utf-8"), name) if sums else ""
         if not want:
-            raise ValueError("The download comes without a checksum, so Brento does not install it.")
+            raise ValueError("The download comes without a checksum, so Daytag does not install it.")
         data = fetch(assets[name])
         if hashlib.sha256(data).hexdigest() != want:
-            raise ValueError("The download did not match its checksum, so Brento did not install it.")
+            raise ValueError("The download did not match its checksum, so Daytag did not install it.")
         program = "gh.exe" if (system or settings.system()) == "win32" else "gh"
         extract_gh(data, name, target or settings.home() / "bin" / program)
         INSTALL["done"] = True
@@ -164,7 +164,7 @@ def guess_name(gh_ready):
 
 
 def vault_stats(folder):
-    """How much Brento will find in a vault: notes and open tasks with a date. Counted, never read out."""
+    """How much Daytag will find in a vault: notes and open tasks with a date. Counted, never read out."""
     # Not Path.expanduser, which raises for a ~name nobody has.
     root = Path(os.path.expanduser(folder))
     if not folder or not os.path.isdir(str(root)):
@@ -173,11 +173,11 @@ def vault_stats(folder):
         os.listdir(str(root))
     except PermissionError:
         if settings.system() == "darwin":
-            return {"notes": 0, "tasks": 0, "error": "macOS does not let Brento read this folder yet. Open System Settings, "
+            return {"notes": 0, "tasks": 0, "error": "macOS does not let Daytag read this folder yet. Open System Settings, "
                     "Privacy & Security, Files & Folders, and switch the folder on for %s. If %s is not in that list, add it "
                     "under Full Disk Access instead. Then choose the folder here again."
                     % ((os.path.basename(sys.executable) or "python3",) * 2)}
-        return {"notes": 0, "tasks": 0, "error": "Brento may not read this folder."}
+        return {"notes": 0, "tasks": 0, "error": "Daytag may not read this folder."}
     except OSError:
         return {"notes": 0, "tasks": 0, "error": "That folder cannot be read at the moment."}
     notes = 0
@@ -205,7 +205,7 @@ def projects():
     try:
         rows = json.loads(text).get("projects") or []
     except ValueError:
-        return [], "gh gave an answer Brento could not read."
+        return [], "gh gave an answer Daytag could not read."
     out = [{"number": p.get("number"), "title": p.get("title") or "Untitled", "url": p.get("url"),
             "owner": (p.get("owner") or {}).get("login", ""), "ownerType": "org" if (p.get("owner") or {}).get("type") == "Organization" else "user",
             "cards": (p.get("items") or {}).get("totalCount", 0)} for p in rows if not p.get("closed")]
@@ -213,7 +213,7 @@ def projects():
 
 
 def auto_fields(probe):
-    """Maps a board's own fields to what Brento reads, by their names and types. Returns the mapping and,
+    """Maps a board's own fields to what Daytag reads, by their names and types. Returns the mapping and,
     when no field holds the lanes HIGH, MID and LOW, says so."""
     fields = probe.get("fields") or []
     singles = [f for f in fields if f.get("type") == "SINGLE_SELECT"]
@@ -240,12 +240,12 @@ def orgs():
     return [line.strip() for line in (text or "").splitlines() if settings.GH_LOGIN.match(line.strip())]
 
 
-def create_board(title="Brento", org=""):
+def create_board(title="Daytag", org=""):
     """A new board with the lanes, an area and a due date: the owner's own, or a team board in an organization."""
     gh = settings.find_exe("gh")
     if not gh:
         raise ValueError("GitHub CLI is not installed.")
-    title = re.sub(r"[^\w .\-]", "", str(title or "Brento"))[:60] or "Brento"
+    title = re.sub(r"[^\w .\-]", "", str(title or "Daytag"))[:60] or "Daytag"
     if org and not settings.GH_LOGIN.match(org):
         raise ValueError("Unknown organization.")
     text, error = run([gh, "project", "create", "--owner", org or "@me", "--title", title, "--format", "json"])
@@ -263,7 +263,7 @@ def create_board(title="Brento", org=""):
 
 
 def add_fields(owner, number, lanes=True, area=True, due=True):
-    """Adds Brento's fields to a board. Only adds: no existing field or card is changed."""
+    """Adds Daytag's fields to a board. Only adds: no existing field or card is changed."""
     gh = settings.find_exe("gh")
     plan = []
     if lanes:
@@ -296,6 +296,12 @@ class SignIn:
         with self.lock:
             return {"action": self.action, "running": self.proc is not None, "code": self.code, "url": GH_DEVICE,
                     "error": self.error}
+
+    def end(self):
+        """Daytag ends: a sign-in that waits for its code must not run on."""
+        with self.lock:
+            if self.proc is not None:
+                self.proc.kill()
 
     def start(self, action, args):
         github = action.startswith("gh")
@@ -362,6 +368,9 @@ def start_action(action, wait=5.0):
     if action not in ACTIONS:
         raise ValueError("Unknown action.")
     if action == "gh-install":
+        if settings.STORE:
+            # A Store version offers nothing that is not in the Store (policy 10.1.5), and brings the GitHub program along.
+            raise ValueError("The GitHub program comes with Daytag.")
         # The download runs here, and the page asks every few seconds until gh is found.
         if not INSTALL["running"]:
             INSTALL.update(running=True, error="", done=False)

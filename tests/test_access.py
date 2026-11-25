@@ -31,14 +31,14 @@ import sources
 
 
 class Home(unittest.TestCase):
-    """A Brento of its own in a throwaway folder."""
+    """A Daytag of its own in a throwaway folder."""
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.home = Path(self.tmp.name)
-        self.env = mock.patch.dict(os.environ, {"BRENTO_HOME": self.tmp.name})
+        self.env = mock.patch.dict(os.environ, {"DAYTAG_HOME": self.tmp.name})
         self.env.start()
-        os.environ.pop("BRENTO_PORT", None)
+        os.environ.pop("DAYTAG_PORT", None)
         self.kept = server.Handler.app, sources.ME, sources.ME_LOGIN
 
     def tearDown(self):
@@ -89,7 +89,7 @@ class Door(Home):
         return out
 
     def let_in(self):
-        status, _, body = self.call("POST", "/api/enter", json.dumps({"ticket": self.app.ticket()}), X_Leitstand="1")
+        status, _, body = self.call("POST", "/api/enter", json.dumps({"ticket": self.app.ticket()}), X_Daytag="1")
         self.assertEqual(status, 200)
         return json.loads(body)
 
@@ -101,24 +101,24 @@ class Door(Home):
         self.assertEqual((status, sorted(json.loads(body))), (200, ["locked", "webVersion"]))
         for path in ("/api/state", "/api/setup", "/api/wizard", "/api/phone", "/api/tools", "/api/library", "/api/ask/status",
                      "/api/wizard/vault?path=C%3A%5C", "/api/library/seal?path=x.html", "/api/library/asset?path=x.png&s="):
-            status, reply, body = self.call("GET", path, X_Leitstand="1")
-            self.assertEqual((status, json.loads(body)["locked"], reply.getheader("X-Brento-Run"), reply.getheader("X-Brento-Answer")),
+            status, reply, body = self.call("GET", path, X_Daytag="1")
+            self.assertEqual((status, json.loads(body)["locked"], reply.getheader("X-Daytag-Run"), reply.getheader("X-Daytag-Answer")),
                              (401, True, self.app.browsers.run, None), path)
         for path in ("/api/ticket", "/api/setup", "/api/ask", "/api/phone", "/api/wizard/open"):
-            self.assertEqual(self.call("POST", path, body=b"{}", X_Leitstand="1")[0], 401, path)
+            self.assertEqual(self.call("POST", path, body=b"{}", X_Daytag="1")[0], 401, path)
         for given in ({}, {"ticket": ""}, {"ticket": "x"}, {"key": ""}, {"key": "x"}, {"ticket": None, "key": ["x"]}):
-            self.assertEqual(self.call("POST", "/api/enter", json.dumps(given), X_Leitstand="1")[0], 401, given)
+            self.assertEqual(self.call("POST", "/api/enter", json.dumps(given), X_Daytag="1")[0], 401, given)
         # A cookie opens nothing, because a browser gives it to every program on 127.0.0.1.
-        self.assertEqual(self.call("GET", "/api/tools", X_Leitstand="1", Cookie="leitstand=" + self.app.key)[0], 401)
+        self.assertEqual(self.call("GET", "/api/tools", X_Daytag="1", Cookie="daytag=" + self.app.key)[0], 401)
 
     def test_a_ticket_gives_one_browser_its_word_once(self):
         ticket = json.dumps({"ticket": self.app.ticket()})
-        status, reply, body = self.call("POST", "/api/enter", ticket, X_Leitstand="1")
+        status, reply, body = self.call("POST", "/api/enter", ticket, X_Daytag="1")
         self.assertEqual((status, reply.getheader("Set-Cookie")), (200, None))
         word = json.loads(body)
-        self.assertEqual(self.call("POST", "/api/enter", ticket, X_Leitstand="1")[0], 401)
-        self.assertEqual(self.call("GET", "/api/tools", X_Leitstand="1", X_Brento_Sign=sign(word, "GET", "/api/tools", self.host))[0], 200)
-        self.assertNotIn("locked", json.loads(self.call("GET", "/api/state", X_Leitstand="1", X_Brento_Sign=sign(word, "GET", "/api/state", self.host))[2]))
+        self.assertEqual(self.call("POST", "/api/enter", ticket, X_Daytag="1")[0], 401)
+        self.assertEqual(self.call("GET", "/api/tools", X_Daytag="1", X_Daytag_Sign=sign(word, "GET", "/api/tools", self.host))[0], 200)
+        self.assertNotIn("locked", json.loads(self.call("GET", "/api/state", X_Daytag="1", X_Daytag_Sign=sign(word, "GET", "/api/state", self.host))[2]))
         # Where other people have an account, it ends with the run that gave it, and no file is left.
         self.assertEqual(address.Browsers(self.home, keep=False).words, {})
         self.assertFalse((self.home / "browsers.json").exists())
@@ -144,37 +144,37 @@ class Door(Home):
         with mock.patch.object(address.os, "scandir", side_effect=OSError), mock.patch.dict(sys.modules, {"winreg": None}):
             self.assertTrue(address.shared())
 
-    def test_the_answer_shows_that_it_comes_from_brento(self):
+    def test_the_answer_shows_that_it_comes_from_daytag(self):
         word = self.let_in()
         head = sign(word, "GET", "/api/tools", self.host)
-        self.assertEqual(self.call("GET", "/api/tools", X_Leitstand="1", X_Brento_Sign=head)[1].getheader("X-Brento-Answer"), answer(word, head))
+        self.assertEqual(self.call("GET", "/api/tools", X_Daytag="1", X_Daytag_Sign=head)[1].getheader("X-Daytag-Answer"), answer(word, head))
         # Also when the answer is a refusal, and never for what was not signed.
         head = sign(word, "GET", "/api/nothing", self.host)
-        status, reply, _ = self.call("GET", "/api/nothing", X_Leitstand="1", X_Brento_Sign=head)
-        self.assertEqual((status, reply.getheader("X-Brento-Answer")), (404, answer(word, head)))
-        self.assertIsNone(self.call("GET", "/app.js")[1].getheader("X-Brento-Answer"))
+        status, reply, _ = self.call("GET", "/api/nothing", X_Daytag="1", X_Daytag_Sign=head)
+        self.assertEqual((status, reply.getheader("X-Daytag-Answer")), (404, answer(word, head)))
+        self.assertIsNone(self.call("GET", "/app.js")[1].getheader("X-Daytag-Answer"))
 
     def test_the_word_a_browser_had_ends_when_it_comes_in_again(self):
         first, other = self.let_in(), self.let_in()
         self.assertNotEqual(first["id"], other["id"])
-        status, _, body = self.call("POST", "/api/enter", json.dumps({"ticket": self.app.ticket(), "old": first["id"]}), X_Leitstand="1")
+        status, _, body = self.call("POST", "/api/enter", json.dumps({"ticket": self.app.ticket(), "old": first["id"]}), X_Daytag="1")
         second = json.loads(body)
         self.assertEqual(status, 200)
         for word, good in ((first, 401), (second, 200), (other, 200)):
-            self.assertEqual(self.call("GET", "/api/tools", X_Leitstand="1", X_Brento_Sign=sign(word, "GET", "/api/tools", self.host))[0], good)
+            self.assertEqual(self.call("GET", "/api/tools", X_Daytag="1", X_Daytag_Sign=sign(word, "GET", "/api/tools", self.host))[0], good)
         # Without a ticket nobody can end a word.
-        self.call("POST", "/api/enter", json.dumps({"ticket": "x", "old": second["id"]}), X_Leitstand="1")
-        self.assertEqual(self.call("GET", "/api/tools", X_Leitstand="1", X_Brento_Sign=sign(second, "GET", "/api/tools", self.host))[0], 200)
+        self.call("POST", "/api/enter", json.dumps({"ticket": "x", "old": second["id"]}), X_Daytag="1")
+        self.assertEqual(self.call("GET", "/api/tools", X_Daytag="1", X_Daytag_Sign=sign(second, "GET", "/api/tools", self.host))[0], 200)
 
     def test_a_ticket_is_not_taken_at_another_address(self):
         ticket = json.dumps({"ticket": self.app.ticket()})
-        self.assertEqual(self.call("POST", "/api/enter", ticket, X_Leitstand="1", Host="127.0.0.1:%d" % (self.port + 1))[0], 401)
+        self.assertEqual(self.call("POST", "/api/enter", ticket, X_Daytag="1", Host="127.0.0.1:%d" % (self.port + 1))[0], 401)
         # And on Linux not from a program of another account. The ticket is still good after that.
         with mock.patch.object(address, "peer_uid", return_value=4711), mock.patch.object(server.os, "getuid", return_value=1000, create=True):
-            self.assertEqual(self.call("POST", "/api/enter", ticket, X_Leitstand="1")[0], 401)
+            self.assertEqual(self.call("POST", "/api/enter", ticket, X_Daytag="1")[0], 401)
             # The owner's key opens whichever program brings it: nobody else can read that.
-            self.assertEqual(self.call("POST", "/api/enter", json.dumps({"key": self.app.key}), X_Leitstand="1")[0], 200)
-        self.assertEqual(self.call("POST", "/api/enter", ticket, X_Leitstand="1")[0], 200)
+            self.assertEqual(self.call("POST", "/api/enter", json.dumps({"key": self.app.key}), X_Daytag="1")[0], 200)
+        self.assertEqual(self.call("POST", "/api/enter", ticket, X_Daytag="1")[0], 200)
 
     @unittest.skipUnless(sys.platform.startswith("linux"), "only Linux says whose program is at the other end")
     def test_linux_says_whose_program_is_asking(self):
@@ -194,32 +194,32 @@ class Door(Home):
     def test_a_signature_is_good_for_one_request_to_one_address(self):
         word = self.let_in()
         good = sign(word, "GET", "/api/tools", self.host)
-        self.assertEqual(self.call("GET", "/api/tools", X_Leitstand="1", X_Brento_Sign=good)[0], 200)
-        self.assertEqual(self.call("GET", "/api/setup", X_Leitstand="1", X_Brento_Sign=good)[0], 401)
-        self.assertEqual(self.call("GET", "/api/tools?x=1", X_Leitstand="1", X_Brento_Sign=good)[0], 401)
-        self.assertEqual(self.call("POST", "/api/tools", b"{}", X_Leitstand="1", X_Brento_Sign=good)[0], 401)
+        self.assertEqual(self.call("GET", "/api/tools", X_Daytag="1", X_Daytag_Sign=good)[0], 200)
+        self.assertEqual(self.call("GET", "/api/setup", X_Daytag="1", X_Daytag_Sign=good)[0], 401)
+        self.assertEqual(self.call("GET", "/api/tools?x=1", X_Daytag="1", X_Daytag_Sign=good)[0], 401)
+        self.assertEqual(self.call("POST", "/api/tools", b"{}", X_Daytag="1", X_Daytag_Sign=good)[0], 401)
         # Overheard by a program on another port, and passed on from there with that address or with this one.
         other = "127.0.0.1:%d" % (self.port + 1)
         heard = sign(word, "GET", "/api/tools", other)
-        self.assertEqual(self.call("GET", "/api/tools", X_Leitstand="1", X_Brento_Sign=heard)[0], 401)
-        self.assertEqual(self.call("GET", "/api/tools", X_Leitstand="1", X_Brento_Sign=heard, Host=other)[0], 401)
-        self.assertEqual(self.call("GET", "/api/tools", X_Leitstand="1", X_Brento_Sign=sign(word, "GET", "/api/tools", "127.0.0.1"), Host="127.0.0.1")[0], 401)
+        self.assertEqual(self.call("GET", "/api/tools", X_Daytag="1", X_Daytag_Sign=heard)[0], 401)
+        self.assertEqual(self.call("GET", "/api/tools", X_Daytag="1", X_Daytag_Sign=heard, Host=other)[0], 401)
+        self.assertEqual(self.call("GET", "/api/tools", X_Daytag="1", X_Daytag_Sign=sign(word, "GET", "/api/tools", "127.0.0.1"), Host="127.0.0.1")[0], 401)
         # Too old, from the future, of an unknown browser, or out of shape.
         day = address.SIGN_SECONDS + 1
         for bad in (sign(word, "GET", "/api/tools", self.host, now=time.time() - day), sign(word, "GET", "/api/tools", self.host, now=time.time() + day),
                     sign(dict(word, id="nobody"), "GET", "/api/tools", self.host), sign(dict(word, word="0" * 64), "GET", "/api/tools", self.host),
                     sign(word, "GET", "/api/tools", self.host, run=""), sign(word, "GET", "/api/tools", self.host, run="0" * 16),
                     "", "....", "a.b.c.d", "a.b.c.d.e", "a.b.c.d.e.f", good + "0"):
-            self.assertEqual(self.call("GET", "/api/tools", X_Leitstand="1", X_Brento_Sign=bad)[0], 401, bad)
+            self.assertEqual(self.call("GET", "/api/tools", X_Daytag="1", X_Daytag_Sign=bad)[0], 401, bad)
 
     def test_a_signed_body_cannot_be_exchanged(self):
         word = self.let_in()
         body = json.dumps({"action": "card", "id": "x"}).encode()
         head = sign(word, "POST", "/api/tools", self.host, body)
-        self.assertEqual(self.call("POST", "/api/tools", body, X_Leitstand="1", X_Brento_Sign=head)[0], 200)
-        self.assertEqual(self.call("POST", "/api/tools", body.replace(b'"x"', b'"y"'), X_Leitstand="1", X_Brento_Sign=head)[0], 400)
+        self.assertEqual(self.call("POST", "/api/tools", body, X_Daytag="1", X_Daytag_Sign=head)[0], 200)
+        self.assertEqual(self.call("POST", "/api/tools", body.replace(b'"x"', b'"y"'), X_Daytag="1", X_Daytag_Sign=head)[0], 400)
         for odd in (b"[]", b"1", b"null", b"not json"):
-            self.assertEqual(self.call("POST", "/api/tools", odd, X_Leitstand="1", X_Brento_Sign=sign(word, "POST", "/api/tools", self.host, odd))[0], 400, odd)
+            self.assertEqual(self.call("POST", "/api/tools", odd, X_Daytag="1", X_Daytag_Sign=sign(word, "POST", "/api/tools", self.host, odd))[0], 400, odd)
 
     def test_a_ticket_runs_out(self):
         word = self.app.ticket()
@@ -229,15 +229,15 @@ class Door(Home):
 
     def test_cookies_of_other_programs_do_not_hide_a_phones(self):
         for other in ('_xsrf={"a": 1, "b": "x y"}; ', "odd cookie; ", "a=b; =c; "):
-            self.assertEqual(server.cookie(other + "brento_phone=abc; z=1", "brento_phone"), "abc", other)
+            self.assertEqual(server.cookie(other + "daytag_phone=abc; z=1", "daytag_phone"), "abc", other)
         self.assertEqual(server.cookie(None, "x"), "")
 
-    def test_a_link_from_elsewhere_cannot_make_brento_read_a_folder(self):
+    def test_a_link_from_elsewhere_cannot_make_daytag_read_a_folder(self):
         with mock.patch.object(server.wizard, "vault_stats") as look:
             for path in ("/api/wizard/vault?path=%5C%5Cserver%5Cshare", "/api/wizard", "/api/wizard/gh", "/api/setup"):
                 self.assertEqual(self.call("GET", path)[0], 401, path)
                 # Not even with the right to ask: a link carries no header.
-                self.assertEqual(self.call("GET", path, X_Brento_Key=self.app.key)[0], 403, path)
+                self.assertEqual(self.call("GET", path, X_Daytag_Key=self.app.key)[0], 403, path)
             look.assert_not_called()
 
     def test_a_picture_in_a_note_loads_by_its_sealed_address_only(self):
@@ -265,7 +265,7 @@ class Door(Home):
             status, _, body = self.call("GET", where)
             self.assertEqual((status, body), (200, (server.WEB / "index.html").read_bytes()))
         word, ask = self.let_in(), "/api/library/seal?path=live%20cards.html"
-        status, _, body = self.call("GET", ask, X_Leitstand="1", X_Brento_Sign=sign(word, "GET", ask, self.host))
+        status, _, body = self.call("GET", ask, X_Daytag="1", X_Daytag_Sign=sign(word, "GET", ask, self.host))
         self.assertEqual(status, 200)
         status, reply, body = self.call("GET", json.loads(body)["url"])
         self.assertEqual((status, body), (200, b"<p>cards</p>"))
@@ -275,18 +275,18 @@ class Door(Home):
         said = io.StringIO()
         with contextlib.redirect_stdout(said), mock.patch.object(self.app, "setup_view", side_effect=ValueError("https://calendar.example/secret")):
             with self.assertRaises((http.client.HTTPException, OSError)):
-                self.call("GET", "/api/setup", X_Leitstand="1", X_Brento_Key=self.app.key)
+                self.call("GET", "/api/setup", X_Daytag="1", X_Daytag_Key=self.app.key)
             time.sleep(0.2)
         self.assertIn("ValueError in ", said.getvalue())
         self.assertNotIn("secret", said.getvalue())
 
-    def test_a_page_of_the_notes_folder_gets_none_of_brentos_rights(self):
+    def test_a_page_of_the_notes_folder_gets_none_of_daytags_rights(self):
         self.assertTrue(server.CSP_PAGE.startswith("sandbox allow-scripts;"))
         self.assertNotIn("allow-same-origin", server.CSP_PAGE)
 
     def test_a_foreign_host_name_is_refused_and_localhost_leads_to_the_one_address(self):
         self.assertEqual(self.call("GET", "/", Host="evil.example")[0], 403)
-        self.assertEqual(self.call("GET", "/api/tools", Host="evil.example", X_Leitstand="1", X_Brento_Key=self.app.key)[0], 403)
+        self.assertEqual(self.call("GET", "/api/tools", Host="evil.example", X_Daytag="1", X_Daytag_Key=self.app.key)[0], 403)
         status, reply, _ = self.call("GET", "/?ticket=x", Host="localhost:%d" % self.port)
         self.assertEqual((status, reply.getheader("Location")), (303, "http://%s/?ticket=x" % self.host))
 
@@ -304,7 +304,7 @@ class Door(Home):
         said = []
         real = address._ask
         with mock.patch.object(address, "_ask", side_effect=lambda *a: said.append(a) or real(*a)):
-            with tempfile.TemporaryDirectory() as other, mock.patch.dict(os.environ, {"BRENTO_HOME": other}):
+            with tempfile.TemporaryDirectory() as other, mock.patch.dict(os.environ, {"DAYTAG_HOME": other}):
                 # Another person on the same computer, with a key of their own or with none yet.
                 self.assertEqual(address.whose(self.port), "other")
                 address.load_key(Path(other))
@@ -319,7 +319,7 @@ class Door(Home):
     def test_a_length_that_cannot_be_meant_is_refused_at_once(self):
         for length in ("-1", "x", "999999999"):
             with socket.create_connection(("127.0.0.1", self.port), timeout=10) as raw:
-                raw.sendall(("POST /api/enter HTTP/1.1\r\nHost: %s\r\nX-Leitstand: 1\r\nContent-Length: %s\r\n\r\n{}" % (self.host, length)).encode())
+                raw.sendall(("POST /api/enter HTTP/1.1\r\nHost: %s\r\nX-Daytag: 1\r\nContent-Length: %s\r\n\r\n{}" % (self.host, length)).encode())
                 self.assertIn(raw.recv(60).split(b" ")[1], (b"400", b"413"), length)
 
     def test_the_phone_door_knows_nothing_of_all_this(self):
@@ -342,7 +342,7 @@ class SignedInTheBrowser(unittest.TestCase):
 
 
 class Other(BaseHTTPRequestHandler):
-    """Another program, or a Brento from before the key."""
+    """Another program, or a Daytag from before the key."""
 
     def log_message(self, *args):
         pass
@@ -364,7 +364,7 @@ class Neighbours(Home):
 
     def test_what_answers_on_a_port(self):
         self.assertEqual(address.whose(self.serve("SimpleHTTP")), "")
-        self.assertEqual(address.whose(self.serve("Brento")), "older")
+        self.assertEqual(address.whose(self.serve("Daytag")), "older")
         with socket.socket() as free:
             free.bind(("127.0.0.1", 0))
             self.assertEqual(address.whose(free.getsockname()[1]), "")
@@ -397,7 +397,7 @@ class Neighbours(Home):
             time.sleep(20)
 
         def drip(conn):
-            conn.sendall(b"HTTP/1.1 404 x\r\nServer: Brento\r\n\r\n")
+            conn.sendall(b"HTTP/1.1 404 x\r\nServer: Daytag\r\n\r\n")
             for _ in range(200):
                 conn.sendall(b"x")
                 time.sleep(0.3)
@@ -418,15 +418,15 @@ class Neighbours(Home):
 
     def test_two_people_on_one_computer_each_get_their_own(self):
         def start(home):
-            env = dict(os.environ, BRENTO_HOME=str(home), PYTHONIOENCODING="utf-8")
-            env.pop("BRENTO_PORT", None)
+            env = dict(os.environ, DAYTAG_HOME=str(home), PYTHONIOENCODING="utf-8")
+            env.pop("DAYTAG_PORT", None)
             return subprocess.Popen([sys.executable, "-X", "utf8", str(ROOT / "server.py")], env=env, stdin=subprocess.DEVNULL,
                                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
 
         def ready(home):
             ends = time.monotonic() + 60
             while time.monotonic() < ends:
-                with mock.patch.dict(os.environ, {"BRENTO_HOME": str(home)}):
+                with mock.patch.dict(os.environ, {"DAYTAG_HOME": str(home)}):
                     if address.whose() == "mine":
                         return address.port()
                 time.sleep(0.3)
@@ -445,7 +445,7 @@ class Neighbours(Home):
                 self.assertTrue(second)
                 self.assertNotEqual(first, second)
                 self.assertEqual(address.Browsers(ben, keep=True).words, {})
-                with mock.patch.dict(os.environ, {"BRENTO_HOME": ben}):
+                with mock.patch.dict(os.environ, {"DAYTAG_HOME": ben}):
                     self.assertEqual(address.whose(first), "other")
                 # Anna opens it twice: the second one sees that hers runs, and ends.
                 again = start(anna)
@@ -461,7 +461,7 @@ class Neighbours(Home):
 
 
 class LostFolder(Home):
-    def test_a_renamed_notes_folder_does_not_keep_brento_from_starting(self):
+    def test_a_renamed_notes_folder_does_not_keep_daytag_from_starting(self):
         vault = self.home.resolve() / "My notes"
         vault.mkdir()
         (vault / "a.md").write_text("- [ ] Send the offer \U0001f4c5 2099-01-02\n", encoding="utf-8")
@@ -541,7 +541,7 @@ class Links(Home):
             for path in ("/api/calendar", "/api/slack"):
                 for body in ({}, {"url": ""}, {"url": "   "}):
                     conn = http.client.HTTPConnection("127.0.0.1", srv.server_address[1], timeout=10)
-                    conn.request("POST", path, json.dumps(body), {"X-Leitstand": "1", address.KEY_HEADER: app.key, "Host": "127.0.0.1"})
+                    conn.request("POST", path, json.dumps(body), {"X-Daytag": "1", address.KEY_HEADER: app.key, "Host": "127.0.0.1"})
                     reply = conn.getresponse()
                     self.assertEqual((reply.status, json.loads(reply.read())["error"]), (400, "Paste the link first."), (path, body))
                     conn.close()
@@ -575,7 +575,7 @@ class Reading(unittest.TestCase):
         self.assertEqual((src["state"], src["note"]), ("unknown", "the notes folder is not there"))
         with mock.patch.object(sources.os, "listdir", side_effect=PermissionError):
             data, src = sources.read_tasks(index, today)
-            self.assertEqual((src["state"], src["note"]), ("unknown", "Brento may not read the notes folder"))
+            self.assertEqual((src["state"], src["note"]), ("unknown", "Daytag may not read the notes folder"))
 
     def test_a_meeting_with_a_join_link_counts_without_a_guest_list(self):
         text = ("BEGIN:VEVENT\nDTSTART:20261125T100000\nSUMMARY:Budget\n"
@@ -901,7 +901,7 @@ class AppleTools(unittest.TestCase):
             (Path(tmp) / ".local" / "bin").mkdir(parents=True)
             (Path(tmp) / ".local" / "bin" / "claude.exe").write_bytes(b"")
             with mock.patch.object(settings.shutil, "which", side_effect=lambda n, path=None, real=settings.shutil.which: None if path is None else real(n, path=path)), \
-                    mock.patch.object(settings.Path, "home", return_value=Path(tmp)), mock.patch.dict(os.environ, {"BRENTO_HOME": tmp}),                     mock.patch.dict(sys.modules, {"winreg": None}):
+                    mock.patch.object(settings.Path, "home", return_value=Path(tmp)), mock.patch.dict(os.environ, {"DAYTAG_HOME": tmp}),                     mock.patch.dict(sys.modules, {"winreg": None}):
                 self.assertTrue(re.search(r"\.local.bin.claude\.exe$", settings.find_exe("claude") or "", re.I))
 
 

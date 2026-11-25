@@ -34,7 +34,7 @@ def load_private(path, required=True):
         lines = []
     terms = [line.strip() for line in lines if line.strip() and not line.startswith("#")]
     if not terms and required:
-        raise SystemExit("Brento did not start: the privacy list is missing or empty: %s" % path)
+        raise SystemExit("Daytag did not start: the privacy list is missing or empty: %s" % path)
     global PRIVATE
     # No words, no filter: allowed only when the owner chose it. (?!) never matches anything.
     PRIVATE = re.compile("|".join(re.escape(term) for term in terms), re.I) if terms else re.compile(r"(?!)")
@@ -81,7 +81,7 @@ def folder_problem(folder):
     try:
         os.listdir(str(folder))
     except PermissionError:
-        return "Brento may not read the notes folder"
+        return "Daytag may not read the notes folder"
     except (FileNotFoundError, NotADirectoryError):
         return "the notes folder is not there"
     except OSError:
@@ -863,7 +863,7 @@ def gh_status():
     found = {s.strip(" '\"") for s in scopes.group(1).split(",")} if scopes else set()
     if scopes and "project" not in found and "read:project" not in found:
         return {"ready": False, "login": login.group(1) if login else "",
-                "reason": "GitHub does not let Brento read your boards yet."}
+                "reason": "GitHub does not let Daytag read your boards yet."}
     return {"ready": True, "login": login.group(1) if login else "", "reason": ""}
 
 

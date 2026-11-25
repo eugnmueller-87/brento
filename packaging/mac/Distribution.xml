@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <installer-gui-script minSpecVersion="1">
-    <title>Brento</title>
-    <organization>app.brento</organization>
+    <title>Daytag</title>
+    <organization>app.daytag</organization>
     <!-- Only for the person installing, into their own home folder. So macOS asks for no admin password. -->
     <domains enable_anywhere="false" enable_currentUserHome="true" enable_localSystem="false"/>
     <options customize="never" require-scripts="false" hostArchitectures="arm64,x86_64"/>
@@ -14,12 +14,12 @@
     <conclusion file="conclusion.html" mime-type="text/html"/>
     <choices-outline>
         <line choice="default">
-            <line choice="app.brento.pkg"/>
+            <line choice="app.daytag.pkg"/>
         </line>
     </choices-outline>
     <choice id="default"/>
-    <choice id="app.brento.pkg" visible="false">
-        <pkg-ref id="app.brento.pkg"/>
+    <choice id="app.daytag.pkg" visible="false">
+        <pkg-ref id="app.daytag.pkg"/>
     </choice>
-    <pkg-ref id="app.brento.pkg" version="{version}" installKBytes="{kbytes}" auth="none" onConclusion="none">#brento.pkg</pkg-ref>
+    <pkg-ref id="app.daytag.pkg" version="{version}" installKBytes="{kbytes}" auth="none" onConclusion="none">#daytag.pkg</pkg-ref>
 </installer-gui-script>

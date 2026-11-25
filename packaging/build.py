@@ -1,11 +1,11 @@
 """Builds the installers: one file per system, with everything inside.
 
-    python packaging/build.py mac        dist/Brento-Mac.pkg, on any computer
-    python packaging/build.py windows    dist/Brento-Windows.exe, on Windows with Inno Setup 6
+    python packaging/build.py mac        dist/Daytag-Mac.pkg, on any computer
+    python packaging/build.py windows    dist/Daytag-Windows.exe, on Windows with Inno Setup 6
     python packaging/build.py windows --iscc "<path to ISCC.exe>"
     python packaging/build.py windows --preview    a test build with its own name and folder, without start at sign-in
 
-Each one holds Brento, its own Python and the GitHub program, so the computer needs nothing beforehand. The downloads
+Each one holds Daytag, its own Python and the GitHub program, so the computer needs nothing beforehand. The downloads
 are pinned in runtimes.json by address and SHA-256, and a file that differs stops the build.
 """
 import argparse
@@ -30,26 +30,26 @@ sys.path.insert(0, str(HERE))
 import macpkg  # noqa: E402
 
 DIST = ROOT / "dist"
-CACHE = Path(os.environ.get("BRENTO_BUILD_CACHE") or HERE / "cache")
+CACHE = Path(os.environ.get("DAYTAG_BUILD_CACHE") or HERE / "cache")
 RUNTIMES = json.loads((HERE / "runtimes.json").read_text(encoding="utf-8"))
 MTIME = 1767225600  # one fixed date on every packed file, so the same input gives the same output
 # What belongs to the program itself. Everything else in the repository is for people who change it.
 SKIP_DIRS = ("tests/", "docs/", "packaging/", "scripts/", "design/", "desktop/", ".github/")
 KEEP_PLAIN = {"LICENSE", "VERSION", "install.sh", "tools.catalog.json", "tools.default.json", "projects.default.json",
               "ask-settings.json", "windows-zones.json", "team.json", "team.example.json"}
-# Parts of Python that Brento never uses.
+# Parts of Python that Daytag never uses.
 PYTHON_DROP = re.compile(r"^python/(include|share)/|^python/lib/(tcl|tk|itcl|thread|lib(tcl|tk|python))|^python/lib/pkgconfig/|"
                          r"^python/lib/python3\.\d+/(site-packages|ensurepip|idlelib|tkinter|turtledemo|test|pydoc_data|lib2to3|"
                          r"config-[^/]*|__pycache__)/|^python/lib/python3\.\d+/lib-dynload/_tkinter|^python/lib/python3\.\d+/turtle\.py$|/__pycache__/")
-THIRD_PARTY = """Brento's installer brings these programs along, each under its own license. From Python it leaves out
-what Brento does not use:
+THIRD_PARTY = """Daytag's installer brings these programs along, each under its own license. From Python it leaves out
+what Daytag does not use:
 
 Python {python}          https://www.python.org/             license: python/{python_license}
 {more}GitHub CLI {gh}        https://cli.github.com/             license: app/bin/LICENSE-gh.txt
 Photos on the cards    Wikimedia Commons                   authors and licenses: app/web/photos/CREDITS.md
 Time zone names        https://cldr.unicode.org/           license: licenses/LICENSE.unicode.txt
 
-Brento itself: app/LICENSE
+Daytag itself: app/LICENSE
 """
 # Libraries inside the Mac's Python, whose publisher keeps the license texts beside it and not in it.
 MORE_MAC = """Inside that Python: OpenSSL, libffi, expat, mpdecimal, zstd, bzip2, liblzma, SQLite and libuuid
@@ -67,7 +67,7 @@ def fetch(key):
     if not target.is_file():
         CACHE.mkdir(parents=True, exist_ok=True)
         print("downloading", name)
-        request = urllib.request.Request(entry["url"], headers={"User-Agent": "Brento-build"})
+        request = urllib.request.Request(entry["url"], headers={"User-Agent": "Daytag-build"})
         with urllib.request.urlopen(request, timeout=300) as answer:
             part = target.with_name(name + ".part")
             part.write_bytes(answer.read())
@@ -130,16 +130,16 @@ def targz(entries):
 
 
 def mac_runtime(chip, files):
-    """Python for one chip, without what Brento never uses, plus the GitHub program.
+    """Python for one chip, without what Daytag never uses, plus the GitHub program.
 
-    The Python program is called Brento here, because macOS shows a program's file name when it asks for access to a
+    The Python program is called Daytag here, because macOS shows a program's file name when it asks for access to a
     folder and when it lists what runs in the background. "python3.14" would tell nobody what that is."""
     entries = []
     with tarfile.open(fileobj=io.BytesIO(fetch("python-mac-" + chip)), mode="r:gz") as source:
         members = {m.name: m for m in source.getmembers()}
         program = next(n for n in members if re.match(r"^python/bin/python3\.\d+$", n) and members[n].isfile())
-        entries.append(("python/bin/Brento", 0o755, source.extractfile(members[program]).read(), ""))
-        entries.append(("python/bin/python3", 0o777, None, "Brento"))
+        entries.append(("python/bin/Daytag", 0o755, source.extractfile(members[program]).read(), ""))
+        entries.append(("python/bin/python3", 0o777, None, "Daytag"))
         for name in sorted(members):
             member = members[name]
             if not name.startswith("python/lib/") or PYTHON_DROP.search(name) or member.isdir():
@@ -166,7 +166,7 @@ def build_mac():
     program = targz([("app/" + rel, 0o755 if rel == "install.sh" else 0o644, data, "") for rel, data in sorted(files.items())])
     size = sum(len(d) for d in files.values())
     scripts = {"postinstall": ((HERE / "mac" / "postinstall").read_bytes().replace(b"\r\n", b"\n"), True),
-               "brento.tar.gz": (program, False)}
+               "daytag.tar.gz": (program, False)}
     largest = 0
     for chip in ("arm64", "x86_64"):
         packed, unpacked = mac_runtime(chip, files)
@@ -179,12 +179,12 @@ def build_mac():
     for path in sorted((HERE / "mac").rglob("*.html")):
         resources[path.relative_to(HERE / "mac").as_posix()] = path.read_bytes().replace(b"\r\n", b"\n")
     DIST.mkdir(exist_ok=True)
-    target = DIST / "Brento-Mac.pkg"
-    macpkg.write(target, distribution.encode("utf-8"), resources, "brento.pkg",
-                 macpkg.package_info("app.brento.pkg", ver, kbytes), macpkg.scripts_archive(scripts))
+    target = DIST / "Daytag-Mac.pkg"
+    macpkg.write(target, distribution.encode("utf-8"), resources, "daytag.pkg",
+                 macpkg.package_info("app.daytag.pkg", ver, kbytes), macpkg.scripts_archive(scripts))
     # Read back what was written: every checksum, and the script Apple's Installer will start.
     inside = macpkg.read_xar(target.read_bytes())
-    unpacked = macpkg.read_scripts(inside["brento.pkg/Scripts"])
+    unpacked = macpkg.read_scripts(inside["daytag.pkg/Scripts"])
     if unpacked["./postinstall"][0] != 0o100755 or set(unpacked) != {"."} | {"./" + n for n in scripts}:
         raise SystemExit("The package does not read back as written.")
     return target, ver
@@ -241,7 +241,7 @@ def stage_windows(stage):
                                 python_license="LICENSE.txt", more=MORE_WINDOWS.format(tzdata=RUNTIMES["tzdata"]["version"]))
     (stage / "THIRD-PARTY.txt").write_text(notice, encoding="utf-8")
     shutil.copytree(str(HERE / "licenses"), str(stage / "licenses"))
-    shutil.copyfile(str(HERE / "windows" / "brento.ico"), str(stage / "brento.ico"))
+    shutil.copyfile(str(HERE / "windows" / "daytag.ico"), str(stage / "daytag.ico"))
     return ver
 
 
@@ -252,15 +252,15 @@ def build_windows(iscc, preview):
     args = [compiler, "/Qp", "/DAppVersion=" + ver, "/DStage=" + str(stage), "/DOutput=" + str(DIST)]
     if preview:
         args.append("/DPreview")
-    subprocess.run(args + [str(HERE / "windows" / "brento.iss")], check=True)
-    return DIST / ("Brento-Windows-Preview.exe" if preview else "Brento-Windows.exe"), ver
+    subprocess.run(args + [str(HERE / "windows" / "daytag.iss")], check=True)
+    return DIST / ("Daytag-Windows-Preview.exe" if preview else "Daytag-Windows.exe"), ver
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("system", choices=("mac", "windows"))
     parser.add_argument("--iscc", help="the path to Inno Setup's ISCC.exe")
-    parser.add_argument("--preview", action="store_true", help="a Windows test build that leaves an installed Brento alone")
+    parser.add_argument("--preview", action="store_true", help="a Windows test build that leaves an installed Daytag alone")
     args = parser.parse_args()
     target, ver = build_mac() if args.system == "mac" else build_windows(args.iscc, args.preview)
     data = target.read_bytes()

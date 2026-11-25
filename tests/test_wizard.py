@@ -111,7 +111,7 @@ class Fields(unittest.TestCase):
         self.assertFalse(found["lanesFound"])
         self.assertEqual((found["statusField"], found["dueField"]), ("Status", "Due date"))
 
-    def test_brentos_own_lane_field_wins_over_a_plain_status(self):
+    def test_daytags_own_lane_field_wins_over_a_plain_status(self):
         probe = {"fields": [{"name": "Status", "type": "SINGLE_SELECT", "options": ["Todo", "Done"]},
                             {"name": "Lane", "type": "SINGLE_SELECT", "options": ["HIGH", "MID", "LOW", "Done"]},
                             {"name": "Area", "type": "SINGLE_SELECT", "options": ["Work"]}]}
@@ -122,7 +122,7 @@ class Fields(unittest.TestCase):
         with self.assertRaises(ValueError):
             wizard.start_action("rm -rf /")
         for action, args in wizard.ACTIONS.items():
-            # The download is Brento's own code; every other action is one of the two known programs.
+            # The download is Daytag's own code; every other action is one of the two known programs.
             self.assertTrue(args[0] in ("{gh}", "{claude}") if args else action == "gh-install", action)
 
 

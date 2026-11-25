@@ -1,4 +1,4 @@
-"""The owner's tool list. The only thing Brento ever writes, and it lives outside the vault."""
+"""The owner's tool list. The only thing Daytag ever writes, and it lives outside the vault."""
 import hashlib
 import json
 import os

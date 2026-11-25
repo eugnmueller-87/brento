@@ -1,12 +1,12 @@
-# Brento
+# Daytag
 
-[![tests](https://github.com/eugnmueller-87/brento/actions/workflows/tests.yml/badge.svg)](https://github.com/eugnmueller-87/brento/actions/workflows/tests.yml)
-[![release](https://img.shields.io/github/v/release/eugnmueller-87/brento?style=flat)](https://github.com/eugnmueller-87/brento/releases/latest)
+[![tests](https://github.com/eugnmueller-87/daytag/actions/workflows/tests.yml/badge.svg)](https://github.com/eugnmueller-87/daytag/actions/workflows/tests.yml)
+[![release](https://img.shields.io/github/v/release/eugnmueller-87/daytag?style=flat)](https://github.com/eugnmueller-87/daytag/releases/latest)
 ![Mac and Windows](https://img.shields.io/badge/Mac_and_Windows-one_file-2ea44f?style=flat)
 ![Nothing to pay for](https://img.shields.io/badge/running_costs-none-555?style=flat)
 ![License: MIT](https://img.shields.io/badge/license-MIT-555?style=flat)
 
-One screen that tells you what needs you today. Brento reads your Obsidian notes and their dated tasks, your
+One screen that tells you what needs you today. Daytag reads your Obsidian notes and their dated tasks, your
 GitHub Project board and your calendar, and puts only what really needs you on its home screen: your own
 deadlines, meetings where people wait for you, urgent cards with a date. Your everyday apps sit in its dock.
 
@@ -20,22 +20,22 @@ board. And it is a blueprint: take this repository and build your own.
 
 | Your computer | One file |
 |---|---|
-| **Mac** (macOS 13 or newer, Apple chip or Intel) | [**Download Brento-Mac.pkg**](https://github.com/eugnmueller-87/brento/releases/latest/download/Brento-Mac.pkg) |
-| **Windows** 10 or 11 | [**Download Brento-Windows.exe**](https://github.com/eugnmueller-87/brento/releases/latest/download/Brento-Windows.exe) |
+| **Mac** (macOS 13 or newer, Apple chip or Intel) | [**Download Daytag-Mac.pkg**](https://github.com/eugnmueller-87/daytag/releases/latest/download/Daytag-Mac.pkg) |
+| **Windows** 10 or 11 | [**Download Daytag-Windows.exe**](https://github.com/eugnmueller-87/daytag/releases/latest/download/Daytag-Windows.exe) |
 
-Open the file and click through. Then Brento opens in your browser and asks one question per page, and you can skip
+Open the file and click through. Then Daytag opens in your browser and asks one question per page, and you can skip
 every one of them. The file brings everything along, so there is nothing else to install and no Terminal to open.
-Brento starts when you log in, and you open it like any other app.
+Daytag starts when you log in, and you open it like any other app.
 
 ### The first time on a Mac
 
-macOS stops programs from the internet that Apple has not checked. Brento has no paid Apple certificate, so you allow
+macOS stops programs from the internet that Apple has not checked. Daytag has no paid Apple certificate, so you allow
 the file yourself ([Apple's own description](https://support.apple.com/guide/mac-help/open-a-mac-app-from-an-unidentified-developer-mh40616/mac)):
 
-1. Open **Brento-Mac.pkg**. macOS says *"Brento-Mac.pkg" Not Opened*. Click **Done**, not the blue *Move to Trash*.
-2. Open **System Settings**, then **Privacy & Security**, and scroll down to *Security*. Next to *"Brento-Mac.pkg" was
+1. Open **Daytag-Mac.pkg**. macOS says *"Daytag-Mac.pkg" Not Opened*. Click **Done**, not the blue *Move to Trash*.
+2. Open **System Settings**, then **Privacy & Security**, and scroll down to *Security*. Next to *"Daytag-Mac.pkg" was
    blocked to protect your Mac* click **Open Anyway**. The warning comes back: click **Open Anyway** again, and confirm
-   with the password of an administrator of this Mac (yours, if the Mac is yours). That is macOS asking, not Brento. The
+   with the password of an administrator of this Mac (yours, if the Mac is yours). That is macOS asking, not Daytag. The
    button is there for about an hour. On macOS 13 and 14 it is shorter: hold **Control**, click the file, **Open**, **Open**.
 3. The installer opens: **Continue**, **Install**, **Close**. Should it ask for an administrator, click **Change Install
    Location** and choose **Install for me only**.
@@ -44,43 +44,44 @@ the file yourself ([Apple's own description](https://support.apple.com/guide/mac
 
 1. Your browser may hold the file back. In **Edge**: point at the download, click the three dots, **Keep**, **Show more**,
    **Keep anyway**. In another browser choose to keep it, if it asks.
-2. Open **Brento-Windows.exe**. If Windows says that it protected your PC, click **More info**, then **Run anyway**.
+2. Open **Daytag-Windows.exe**. If Windows says that it protected your PC, click **More info**, then **Run anyway**.
 3. The installer opens: **Next**, **Install**, **Finish**.
 
 Some newer PCs have **Smart App Control** switched on. Windows then blocks every unknown program without a certificate,
 and [offers no exception for a single one](https://support.microsoft.com/topic/285ea03d-fa88-4d56-882e-6698afdb7003).
-Brento does not have that certificate yet, so it cannot be installed on such a PC.
+Daytag does not have that certificate yet, so it cannot be installed on such a PC.
 
 ### Updating and removing
 
-**Update:** download the new file and open it. Your computer asks the same questions again for each new version. Your
-setup stays, because it lives in your home folder (`.brento`). What changed is in [CHANGELOG.md](CHANGELOG.md).
+**Update:** download the new file and open it (coming from 0.2.0, which had another name: remove that program first and go
+through the setup once more). Your computer asks the same questions again for each new version. Your
+setup stays, because it lives in your home folder (`.daytag`). What changed is in [CHANGELOG.md](CHANGELOG.md).
 
-**Remove:** on a Mac, open **Uninstall Brento** (press Cmd and Space and type it). On Windows, **Settings, Apps**, Brento,
-**Uninstall**. Your notes, board and calendar stay as they are, and Brento asks whether its own settings should go too.
+**Remove:** on a Mac, open **Uninstall Daytag** (press Cmd and Space and type it). On Windows, **Settings, Apps**, Daytag,
+**Uninstall**. Your notes, board and calendar stay as they are, and Daytag asks whether its own settings should go too.
 Your GitHub sign-in stays on the computer; take it back under
 [github.com/settings/applications](https://github.com/settings/applications).
 
 ### Linux, or from the source code
 
-Linux: `sh install.sh` adds a `brento` command and opens the wizard, `sh install.sh --remove` takes it out again. On a
-Mac, the same script runs Brento with the Mac's own Python. On Windows, *Install Brento.cmd* does that with Python from
+Linux: `sh install.sh` adds a `daytag` command and opens the wizard, `sh install.sh --remove` takes it out again. On a
+Mac, the same script runs Daytag with the Mac's own Python. On Windows, *Install Daytag.cmd* does that with Python from
 python.org. How the two
 installers are built: [packaging/build.py](packaging/build.py).
 
 ## On your phone (iPhone, iPad, Android)
 
-Brento shows on your phone through your computer, so there is no app store and nothing to install on the phone.
+Daytag shows on your phone through your computer, so there is no app store and nothing to install on the phone.
 
-1. On the computer: **Brain, Sources and setup**, then **Phone**, then **Use Brento on my phone**. Brento shows an
-   address and a six-digit code. Windows asks about Python then: that is Brento, click **Allow** (an administrator is
+1. On the computer: **Brain, Sources and setup**, then **Phone**, then **Use Daytag on my phone**. Daytag shows an
+   address and a six-digit code. Windows asks about Python then: that is Daytag, click **Allow** (an administrator is
    needed for that once, and your Wi-Fi has to be set to *Private network*).
 2. On the phone, on the same Wi-Fi: open Safari (or Chrome) and type the address.
-3. iPhone: **Share, Add to Home Screen**. Open Brento from its new icon and type the code.
+3. iPhone: **Share, Add to Home Screen**. Open Daytag from its new icon and type the code.
 
 The phone reads Home, the board, the calendar and your notes, and can use the Ask box. It cannot change the setup.
 The computer has to be on. Away from home it works over [Tailscale](https://tailscale.com/), with the second address
-Brento shows. Use it on your home Wi-Fi or over Tailscale, not on public Wi-Fi.
+Daytag shows. Use it on your home Wi-Fi or over Tailscale, not on public Wi-Fi.
 
 ## The wizard
 
@@ -89,17 +90,17 @@ One question per screen, most answers already filled in, a button for everything
 | Step | What you do |
 |---|---|
 | Welcome | Check your first name (taken from GitHub or git) |
-| Notes | Your Obsidian vault is already chosen. Brento shows how many notes and dated tasks it found |
-| Board | *Sign in to GitHub* shows a one-time code and a button that copies it and opens GitHub. GitHub asks you to authorize *GitHub CLI*, its own program: it always asks for your repositories and gists (to read and write) and to see your organizations, and Brento adds your project boards. Then click your board, or *Create a new board for me* |
-| Calendar | Pick Google, Outlook or Apple, follow four short steps, paste the link. Brento checks it at once |
-| Slack (optional) | *Create the Brento app* opens Slack with everything filled in. Add a webhook, paste it, a test message arrives |
+| Notes | Your Obsidian vault is already chosen. Daytag shows how many notes and dated tasks it found. Or look around with sample notes |
+| Board | *Sign in to GitHub* shows a one-time code and a button that copies it and opens GitHub. GitHub asks you to authorize *GitHub CLI*, its own program: it always asks for your repositories and gists (to read and write) and to see your organizations, and Daytag adds your project boards. Then click your board, or *Create a new board for me* |
+| Calendar | Pick Google, Outlook or Apple, follow four short steps, paste the link. Daytag checks it at once |
+| Slack (optional) | *Create the Daytag app* opens Slack with everything filled in. Add a webhook, paste it, a test message arrives |
 | Apps | The apps for your dock, already ticked from what you connected |
 
 Change anything later under **Brain, Sources and setup**.
 
 ## Working as a team
 
-Everyone runs their own Brento with their own notes and calendar, and the team shares one GitHub Project board.
+Everyone runs their own Daytag with their own notes and calendar, and the team shares one GitHub Project board.
 
 1. **The team lead** clicks **Use this template** on GitHub to get the team's own copy, installs it, and in the
    wizard picks **Create a team board in *your organization***. On the last screen: **Save as team setup**. That
@@ -116,7 +117,7 @@ The board page shows everyone's cards with their names. A template for the team 
 
 | Source | How |
 |---|---|
-| Obsidian notes | Read inside Brento: topics, folders, tags, full-text search, backlinks |
+| Obsidian notes | Read inside Daytag: topics, folders, tags, full-text search, backlinks |
 | Obsidian tasks with a date | `- [ ] Send the offer 📅 2026-11-30` (Tasks plugin), `[due:: 2026-11-30]` (Dataview) or `@due(2026-11-30)` |
 | GitHub Project board | Lanes HIGH, MID and LOW; a person's or an organization's board; your own field names |
 | Calendar | An iCal link from Google, Outlook or Apple; meetings with others reach Home with a *Join call* button. Repeating appointments are left out |
@@ -127,13 +128,13 @@ time, a task or card whose date has passed, an urgent card without a date.
 
 ## Principles
 
-- **Local and read-only.** Brento never changes a note, a card or an appointment. It writes to its own folder
-  (`~/.brento`), and creates a board, its lanes or `team.json` only when you click the button for it.
-- **What leaves the computer:** Brento asks GitHub and your calendar. Parts of your notes go to Claude when you ask the
+- **Local and read-only.** Daytag never changes a note, a card or an appointment. It writes to its own folder
+  (`~/.daytag`), and creates a board, its lanes or `team.json` only when you click the button for it.
+- **What leaves the computer:** Daytag asks GitHub and your calendar. Parts of your notes go to Claude when you ask the
   Ask box, and messages go to Slack when you connect it. The logos of the known apps in the dock come from Google's
-  icon service. Nothing goes to the author of Brento.
-- **Only for you.** Brento opens only for the person it belongs to. Another account on the same computer sees a locked
-  page, and gets a Brento of its own. Where there are several accounts, Brento opens with its icon first after each
+  icon service. Nothing goes to the author of Daytag. All of it, and how to stop it: [PRIVACY.md](PRIVACY.md).
+- **Only for you.** Daytag opens only for the person it belongs to. Another account on the same computer sees a locked
+  page, and gets a Daytag of its own. Where there are several accounts, Daytag opens with its icon first after each
   start. How this works, and what it cannot stop: [docs/BLUEPRINT.md](docs/BLUEPRINT.md#rules-worth-keeping).
 - **Nothing to type.** Installing, signing in, updating and removing work without a Terminal.
 - **Nothing to pay for.** No server, no database, no paid API. GitHub, the calendar link and the Slack webhook are free.
@@ -153,29 +154,30 @@ Run the tests with `python -m unittest discover -s tests`.
 ## About the Ask box and Claude
 
 The Ask box starts the unmodified `claude` program on your computer. You sign in to it yourself, through Anthropic's
-own sign-in; Brento never sees, stores or passes on that login. It refuses to run on an API key, so questions count
+own sign-in; Daytag never sees, stores or passes on that login. It refuses to run on an API key, so questions count
 against your Claude plan (extra usage costs money only if you have switched that on at Anthropic). It starts it so that
 only your notes folder can be read, and no settings files or hooks count: a shared vault cannot start a program on your
 computer. Anthropic's terms
 ([legal and compliance](https://code.claude.com/docs/en/legal-and-compliance), read 23.11.2026) do not prevent "an
 end user from signing in to the unmodified Claude Code binary with their own Claude subscription". They do not
-name a local app that starts `claude -p` either, so if you plan to offer Brento commercially, ask Anthropic first.
+name a local app that starts `claude -p` either, so if you plan to offer Daytag commercially, ask Anthropic first.
 The Ask box is optional and can stay off.
 
 ## Status
 
-Version 0.2.0, see [CHANGELOG.md](CHANGELOG.md). Brento grew out of a dashboard its author uses every day on
+Version 0.3.0, see [CHANGELOG.md](CHANGELOG.md). Daytag grew out of a dashboard its author uses every day on
 Windows. Before a version is published, GitHub's computers install it, open it, go through the whole setup in a
 browser, update it and remove it: macOS 15 and 26 (Apple chip and Intel), macOS 27, Windows 11 (on Arm) and Windows
 Server 2022 and 2025. What no automatic test covers: the password question of macOS after *Open Anyway*, its question
-whether Brento may read a folder, notes that lie only in a cloud, the warning of SmartScreen, macOS 13 and 14, and the
+whether Daytag may read a folder, notes that lie only in a cloud, the warning of SmartScreen, macOS 13 and 14, how Safari
+looks on macOS 26 and 27 with an Apple chip (GitHub's virtual Macs draw no text there, not even on a plain page), and the
 pairing of a real phone. If something fails, please open an issue.
 
 ## Credits and license
 
 Code: MIT, see [LICENSE](LICENSE). The photos in `web/photos/` come from Wikimedia Commons under their own licenses
 (CC BY-SA, CC BY, public domain); authors and licenses are listed in
-[web/photos/CREDITS.md](web/photos/CREDITS.md).
+[web/photos/CREDITS.md](web/photos/CREDITS.md) and at the end of Daytag's settings.
 
 Built by Eugen Mueller with the help of Claude Code (Anthropic). Every change runs through the automated tests;
 what has not been tried on real devices yet is listed under Status.

@@ -1,7 +1,7 @@
 # Card photos
 
-All from Wikimedia Commons, used under the licence named per photo, resized to WebP for Brento.
-CC BY and CC BY-SA ask for the author's name when Brento is shared: this file is that credit.
+All from Wikimedia Commons, used under the licence named per photo, resized to WebP for Daytag.
+CC BY and CC BY-SA ask for the author's name when Daytag is shared: this file is that credit.
 
 Licence texts: [CC BY 1.0](https://creativecommons.org/licenses/by/1.0/), [CC BY 2.0](https://creativecommons.org/licenses/by/2.0/), [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/), [CC BY-SA 2.0](https://creativecommons.org/licenses/by-sa/2.0/), [CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0/), [CC BY-SA 3.0 Estonia](https://creativecommons.org/licenses/by-sa/3.0/ee/deed.en), [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/), [CC0](https://creativecommons.org/publicdomain/zero/1.0/).
 

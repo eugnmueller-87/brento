@@ -1,5 +1,5 @@
-# Installs Brento for the person running it. No admin rights. Double-click "Install Brento.cmd" to run this.
-# It finds or installs Python, puts "Brento" in the Start menu, starts Brento at every sign-in and opens the
+# Installs Daytag for the person running it. No admin rights. Double-click "Install Daytag.cmd" to run this.
+# It finds or installs Python, puts "Daytag" in the Start menu, starts Daytag at every sign-in and opens the
 # setup wizard. Everything else (GitHub, calendar, Slack) the wizard does with buttons.
 #
 #   install.ps1                 the normal install
@@ -10,13 +10,13 @@
 param([switch]$NoAutostart, [switch]$Remove)
 $ErrorActionPreference = 'Stop'
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
-$menu = Join-Path ([Environment]::GetFolderPath('Programs')) 'Brento.lnk'
-$startup = Join-Path ([Environment]::GetFolderPath('Startup')) 'Brento server.lnk'
+$menu = Join-Path ([Environment]::GetFolderPath('Programs')) 'Daytag.lnk'
+$startup = Join-Path ([Environment]::GetFolderPath('Startup')) 'Daytag server.lnk'
 
 if ($Remove) {
     foreach ($p in @($menu, $startup)) { if (Test-Path $p) { Remove-Item $p -Confirm:$false; "Removed $p" } }
-    [Environment]::SetEnvironmentVariable('BRENTO_PYTHON', $null, 'User')
-    'Your settings stay in your home folder (.brento or .leitstand). Delete that folder to start over.'
+    [Environment]::SetEnvironmentVariable('DAYTAG_PYTHON', $null, 'User')
+    'Your settings stay, in the folder .daytag in your home folder. Delete .daytag to start over.'
     return
 }
 
@@ -49,25 +49,25 @@ if (-not $python) {
     }
 }
 if (-not $python) {
-    Write-Host 'Python could not be installed by itself. Install Python 3 from https://www.python.org/downloads/ and double-click "Install Brento" again.' -ForegroundColor Yellow
+    Write-Host 'Python could not be installed by itself. Install Python 3 from https://www.python.org/downloads/ and double-click "Install Daytag" again.' -ForegroundColor Yellow
     exit 1
 }
 "Python: $python"
-# Brento's start scripts use this exact Python, whatever the PATH says.
-[Environment]::SetEnvironmentVariable('BRENTO_PYTHON', $python, 'User')
-$env:BRENTO_PYTHON = $python
+# Daytag's start scripts use this exact Python, whatever the PATH says.
+[Environment]::SetEnvironmentVariable('DAYTAG_PYTHON', $python, 'User')
+$env:DAYTAG_PYTHON = $python
 
 # 2. Start menu entry, and the start at sign-in unless switched off.
 $shell = New-Object -ComObject WScript.Shell
 $lnk = $shell.CreateShortcut($menu)
-$lnk.TargetPath = Join-Path $here 'brento.cmd'
+$lnk.TargetPath = Join-Path $here 'daytag.cmd'
 $lnk.WorkingDirectory = $here
 $lnk.WindowStyle = 7
 $icon = Join-Path $here 'desktop\icon.ico'
 if (Test-Path $icon) { $lnk.IconLocation = $icon }
-$lnk.Description = 'Brento: what needs you today'
+$lnk.Description = 'Daytag: what needs you today'
 $lnk.Save()
-"Start menu: Brento"
+"Start menu: Daytag"
 if (-not $NoAutostart) {
     $auto = $shell.CreateShortcut($startup)
     $auto.TargetPath = 'wscript.exe'
@@ -81,4 +81,4 @@ if (-not $NoAutostart) {
 $pythonw = Join-Path (Split-Path -Parent $python) 'pythonw.exe'
 if (-not (Test-Path $pythonw)) { $pythonw = $python }
 Start-Process -FilePath $pythonw -ArgumentList ('"' + (Join-Path $here 'launcher.py') + '"'), '--replace'
-'Brento opens in a moment and walks you through the rest.'
+'Daytag opens in a moment and walks you through the rest.'

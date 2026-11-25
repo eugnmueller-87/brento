@@ -2,7 +2,7 @@
 
     python packaging/walk_setup.py safari,chrome pictures      the first browser that can be driven, of safari, edge, chrome
 
-The release workflow runs this against the Brento the installer has just started. It needs the package selenium, which
+The release workflow runs this against the Daytag the installer has just started. It needs the package selenium, which
 nothing else here does. Exit code 0 is good.
 """
 import subprocess
@@ -15,7 +15,7 @@ import address  # noqa: E402
 from selenium import webdriver  # noqa: E402
 from selenium.common.exceptions import WebDriverException  # noqa: E402
 
-PAGES = ["Welcome to ", "Your notes", "Your to-do board", "Your calendar", "Slack", "Your apps", "Brento is ready"]
+PAGES = ["Welcome to ", "Your notes", "Your to-do board", "Your calendar", "Slack", "Your apps", "Daytag is ready"]
 NAME = "Test Person"
 HEADING = "const h = document.querySelector('#wz h2'); return h ? h.textContent : '';"
 FAILED = []
@@ -46,11 +46,11 @@ def walk(browser, pictures):
 
     browser.set_window_size(1100, 820)
     browser.get(address.page())
-    check(until(lambda: "Open Brento with its icon" in browser.page_source, 20), "a browser that was not let in sees a locked page")
+    check(until(lambda: "Open Daytag with its icon" in browser.page_source, 20), "a browser that was not let in sees a locked page")
     browser.save_screenshot(str(pictures / "setup-0-locked.png"))
     browser.get(address.entrance())
     check(until(lambda: browser.current_url.split("#")[0] == address.page(), 20), "the ticket is gone from the address: %s" % browser.current_url)
-    browser.execute_script("window.brentoErrors = []; addEventListener('error', (e) => brentoErrors.push(e.message));")
+    browser.execute_script("window.daytagErrors = []; addEventListener('error', (e) => daytagErrors.push(e.message));")
     for n, page in enumerate(PAGES):
         if not check(until(lambda: heading().startswith(page), 60), "page %d is %r" % (n + 1, page)):
             print("      it shows %r" % heading())
@@ -79,14 +79,14 @@ def walk(browser, pictures):
             click("#wz-skip") or click("#wz-next")
     time.sleep(10)
     check(heading() == PAGES[-1], "the last page stays")
-    check(not browser.execute_script("return window.brentoErrors"), "no script failed in the setup")
+    check(not browser.execute_script("return window.daytagErrors"), "no script failed in the setup")
     browser.refresh()
     check(until(lambda: heading() == PAGES[-1], 30), "also after a reload")
-    browser.execute_script("window.brentoErrors = []; addEventListener('error', (e) => brentoErrors.push(e.message));")
-    check(click("#wz-home"), "there is a button that opens Brento")
+    browser.execute_script("window.daytagErrors = []; addEventListener('error', (e) => daytagErrors.push(e.message));")
+    check(click("#wz-home"), "there is a button that opens Daytag")
     check(until(lambda: browser.execute_script("return location.hash") == "#home", 10), "it leads to Home")
     check(until(lambda: "Nothing is connected yet" in browser.page_source, 10), "Home says that nothing is connected yet")
-    check(not browser.execute_script("return window.brentoErrors"), "no script failed")
+    check(not browser.execute_script("return window.daytagErrors"), "no script failed")
     browser.refresh()
     time.sleep(4)
     check(browser.execute_script("return location.hash") in ("", "#home"), "after a reload it is still Home")

@@ -1,24 +1,25 @@
 # Making a new version
 
-People install Brento from the [Releases](https://github.com/eugnmueller-87/brento/releases) page, so a version is
-what reaches them. Brento is developed in a separate working copy; each new version arrives here as one commit.
+People install Daytag from the [Releases](https://github.com/eugnmueller-87/daytag/releases) page, so a version is
+what reaches them. Daytag is developed in a separate working copy; each new version arrives here as one commit.
 
 1. Bring the code up to date and run the tests: `python -m unittest discover -s tests`.
 2. Put the new number in `VERSION`.
 3. Add a heading `## <number> (<date>)` at the top of `CHANGELOG.md` and write what changed, for the people who use
-   Brento: what they will notice, and any step they have to take after updating.
+   Daytag: what they will notice, and any step they have to take after updating.
 4. Commit, then tag and push both:
 
    ```sh
-   git tag v0.2.0
-   git push origin main v0.2.0
+   git tag v0.4.0
+   git push origin main v0.4.0
    ```
 
 5. The release workflow (`.github/workflows/release.yml`) runs the tests and builds both installers. It then installs
    each of them on fresh computers, goes through the whole setup in a browser, updates, crashes and removes it: macOS 15
-   and 26 (Apple chip and Intel), macOS 27, Windows Server 2022 and 2025, Windows 11 on Arm. Only when all of that
-   worked, it publishes the release with the installers, their checksums and the changelog section as its text, and
-   compares what the download links give with what was tested.
+   and 26 (Apple chip and Intel), macOS 27, Windows Server 2022 and 2025, Windows 11 on Arm. The package for the Microsoft
+   Store goes through the same on Windows Server 2025 and Windows 11. Only when all of that worked, it publishes the
+   release with the installers, their checksums and the changelog section as its text, and compares what the download
+   links give with what was tested. The Store package is not part of the release, because only Microsoft can sign it.
 
 To try all of this without publishing, open **Actions**, **release**, **Run workflow**, or push to a branch called
 `try/something`. Either way it keeps pictures of every step. Look at them before you tag.
@@ -32,8 +33,9 @@ A file that differs stops the build. A new GitHub program can need a newer macOS
 along (`packaging/mac/licenses`, from the same tag of python-build-standalone). Build by hand with `python packaging/build.py mac` (any computer) or `windows` (Windows with Inno
 Setup 6).
 
-The installers are not signed. A signature is what ends the security question on the first start: on a Mac through
-Apple's paid Developer Program, on Windows through a code signing certificate.
+The installers are not signed. A signature is what ends the security question on the first start: on a Mac through Apple's
+paid Developer Program. On Windows, Microsoft signs the package for its Store without cost: [STORE.md](STORE.md). A
+certificate of one's own costs money, shows one's name, and the warning still stays until enough people have installed it.
 
 ## Numbers
 

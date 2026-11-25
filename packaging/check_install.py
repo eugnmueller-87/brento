@@ -1,4 +1,4 @@
-"""Looks at a computer after an installer ran, and says whether Brento is really there, or really gone.
+"""Looks at a computer after an installer ran, and says whether Daytag is really there, or really gone.
 
     python packaging/check_install.py up      installed, running from its own folder, starting at sign-in, setup still to do
     python packaging/check_install.py kept    the same, and the setup someone has already done is still there
@@ -25,15 +25,17 @@ import launcher  # noqa: E402
 WINDOWS = sys.platform == "win32"
 HOME = Path.home()
 if WINDOWS:
-    BASE = Path(os.environ["LOCALAPPDATA"]) / "Programs" / "Brento"
+    BASE = Path(os.environ["LOCALAPPDATA"]) / "Programs" / "Daytag"
     PYTHON = BASE / "python" / "python.exe"
-    SHORTCUTS = [Path(os.environ["APPDATA"]) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Brento.lnk"]
+    SHORTCUTS = [Path(os.environ["APPDATA"]) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Daytag.lnk"]
 else:
-    BASE = HOME / "Library" / "Application Support" / "Brento"
-    PYTHON = BASE / "python" / "bin" / "Brento"
-    SHORTCUTS = [HOME / "Applications" / "Brento.app", HOME / "Applications" / "Uninstall Brento.app",
-                 HOME / ".local" / "bin" / "brento", HOME / "Library" / "LaunchAgents" / "app.brento.server.plist"]
+    BASE = HOME / "Library" / "Application Support" / "Daytag"
+    PYTHON = BASE / "python" / "bin" / "Daytag"
+    SHORTCUTS = [HOME / "Applications" / "Daytag.app", HOME / "Applications" / "Uninstall Daytag.app",
+                 HOME / ".local" / "bin" / "daytag", HOME / "Library" / "LaunchAgents" / "app.daytag.server.plist"]
 FAILED = []
+# False for a Store package: nobody but Windows may start the programs inside it.
+RUNNABLE = True
 
 
 def check(good, text):
@@ -44,7 +46,7 @@ def check(good, text):
 
 def get(path, key=True):
     """What the server sends to its owner, or without the key to anyone else on this computer."""
-    headers = {"X-Leitstand": "1"}
+    headers = {"X-Daytag": "1"}
     if key:
         headers[address.KEY_HEADER] = address.key()
     try:
@@ -55,7 +57,7 @@ def get(path, key=True):
 
 
 def output(program, *args):
-    """What a program of the installed Brento says. Nothing from this computer's own PATH is asked."""
+    """What a program of the installed Daytag says. Nothing from this computer's own PATH is asked."""
     try:
         done = subprocess.run([str(program)] + list(args), capture_output=True, text=True, timeout=90)
     except (OSError, subprocess.SubprocessError) as exc:
@@ -68,10 +70,23 @@ def autostart():
         import winreg
         try:
             with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Run") as key:
-                return str(winreg.QueryValueEx(key, "Brento")[0])
+                return str(winreg.QueryValueEx(key, "Daytag")[0])
         except OSError:
             return ""
-    return launcher.output(["launchctl", "print", "gui/%d/app.brento.server" % os.getuid()])
+    return launcher.output(["launchctl", "print", "gui/%d/app.daytag.server" % os.getuid()])
+
+
+def programs():
+    pinned = json.loads((ROOT / "packaging" / "runtimes.json").read_text(encoding="utf-8"))
+    wanted = pinned["gh-windows-x64" if WINDOWS else "gh-mac-arm64"]["version"]
+    said = output(BASE / "app" / "bin" / ("gh.exe" if WINDOWS else "gh"), "--version")
+    check(wanted in said.split("\n")[0], "the GitHub program that came along runs: %s" % said.split("\n")[0])
+    said = output(PYTHON, "-c", "import ssl, sys, urllib.request; print(sys.version.split()[0], "
+                  "urllib.request.urlopen('https://github.com/robots.txt', timeout=30).status)")
+    check(said.endswith(" 200"), "its own Python opens https pages: %s" % said)
+    said = output(PYTHON, "-c", "import datetime, zoneinfo; print(datetime.datetime(2026, 11, 26, 10, "
+                  "tzinfo=zoneinfo.ZoneInfo('America/New_York')).astimezone(datetime.timezone.utc).hour)")
+    check(said == "15", "its own Python knows other time zones: %s" % said)
 
 
 def up(kept=False):
@@ -81,9 +96,9 @@ def up(kept=False):
     ends = time.monotonic() + 60
     while address.whose() != "mine" and time.monotonic() < ends:
         time.sleep(1)
-    check(address.whose() == "mine", "this person's Brento answers on %s" % address.page())
+    check(address.whose() == "mine", "this person's Daytag answers on %s" % address.page())
     if FAILED:
-        log = HOME / ".brento" / "server.log"
+        log = HOME / ".daytag" / "server.log"
         print(log.read_text(encoding="utf-8", errors="replace")[-2000:] if log.is_file() else "no server.log")
         return
     pid = launcher.listener()
@@ -106,16 +121,8 @@ def up(kept=False):
     else:
         check(view["needed"] is True, "a new owner gets the setup")
     check("not installed" not in view["gh"]["reason"], "the setup finds the GitHub program: %s" % (view["gh"]["reason"] or "ready"))
-    pinned = json.loads((ROOT / "packaging" / "runtimes.json").read_text(encoding="utf-8"))
-    wanted = pinned["gh-windows-x64" if WINDOWS else "gh-mac-arm64"]["version"]
-    said = output(BASE / "app" / "bin" / ("gh.exe" if WINDOWS else "gh"), "--version")
-    check(wanted in said.split("\n")[0], "the GitHub program that came along runs: %s" % said.split("\n")[0])
-    said = output(PYTHON, "-c", "import ssl, sys, urllib.request; print(sys.version.split()[0], "
-                  "urllib.request.urlopen('https://github.com/robots.txt', timeout=30).status)")
-    check(said.endswith(" 200"), "its own Python opens https pages: %s" % said)
-    said = output(PYTHON, "-c", "import datetime, zoneinfo; print(datetime.datetime(2026, 11, 26, 10, "
-                  "tzinfo=zoneinfo.ZoneInfo('America/New_York')).astimezone(datetime.timezone.utc).hour)")
-    check(said == "15", "its own Python knows other time zones: %s" % said)
+    if RUNNABLE:
+        programs()
     entry = autostart()
     check("launcher.py" in entry and "--start" in entry if WINDOWS else "state = running" in entry, "it starts at sign-in")
     if not WINDOWS:
@@ -126,13 +133,13 @@ def down():
     ends = time.monotonic() + 30
     while (address.whose() or BASE.exists()) and time.monotonic() < ends:
         time.sleep(1)
-    check(not address.whose(), "Brento no longer answers")
+    check(not address.whose(), "Daytag no longer answers")
     for path in [BASE / "app" / "server.py", PYTHON] + SHORTCUTS:
         check(not path.exists(), "gone: %s" % path)
     left = sorted(str(p) for p in BASE.rglob("*") if p.is_file())[:8] if BASE.exists() else []
     check(not BASE.exists(), "gone: %s %s" % (BASE, left or ""))
     check(not autostart() if WINDOWS else "state = running" not in autostart(), "gone: the start at sign-in")
-    check((HOME / ".brento").is_dir(), "the settings folder stays")
+    check((HOME / ".daytag").is_dir(), "the settings folder stays")
 
 
 if __name__ == "__main__":

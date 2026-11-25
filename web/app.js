@@ -1,30 +1,30 @@
-/* Brento front end. No framework and no build step. Everything shown comes from the server. */
+/* Daytag front end. No framework and no build step. Everything shown comes from the server. */
 (function () {
   'use strict';
 
-  // This browser's own word. It is kept here and never sent: every question to Brento is signed with it (sign.js). On a
+  // This browser's own word. It is kept here and never sent: every question to Daytag is signed with it (sign.js). On a
   // phone there is none, a paired phone carries a cookie instead.
   let WORD = null, RUN = '', LET_IN = false;
-  function storedWord() { try { const w = JSON.parse(localStorage.getItem(BrentoSign.KEY)); return w && w.id && w.word ? w : null; } catch (e) { return null; } }
+  function storedWord() { try { const w = JSON.parse(localStorage.getItem(DaytagSign.KEY)); return w && w.id && w.word ? w : null; } catch (e) { return null; } }
   function readWord() { WORD = storedWord(); LET_IN = LET_IN || !!WORD; }
   readWord();
-  const locked = () => new Response('{"error":"Open Brento with its icon.","locked":true}', { status: 401, headers: { 'Content-Type': 'application/json' } });
+  const locked = () => new Response('{"error":"Open Daytag with its icon.","locked":true}', { status: 401, headers: { 'Content-Type': 'application/json' } });
   const fetch = async (url, options) => {
     const o = Object.assign({}, options), at = new URL(url, location.href), api = at.pathname.startsWith('/api/');
     // A window that was let in once, or is locked, believes nobody who does not know its word.
     if (api && !WORD && LET_IN) { readWord(); if (!WORD) return locked(); }
-    // What is typed here goes out only after whoever answers has shown that it is Brento.
+    // What is typed here goes out only after whoever answers has shown that it is Daytag.
     if (api && WORD && (o.body || at.search)) { const known = await fetch('/api/tools', { signal: o.signal }); if (known.status === 401) return known; }
     for (let turn = 0; ; turn += 1) {
-      const headers = Object.assign({ 'X-Leitstand': '1' }, o.headers), word = WORD, used = RUN;
+      const headers = Object.assign({ 'X-Daytag': '1' }, o.headers), word = WORD, used = RUN;
       if (!word || !api) return window.fetch(url, Object.assign({}, o, { headers }));
-      const head = BrentoSign.header(word, used, (o.method || 'GET').toUpperCase(), at.pathname + at.search, location.host, o.body || '', Date.now());
-      headers['X-Brento-Sign'] = head;
+      const head = DaytagSign.header(word, used, (o.method || 'GET').toUpperCase(), at.pathname + at.search, location.host, o.body || '', Date.now());
+      headers['X-Daytag-Sign'] = head;
       const r = await window.fetch(url, Object.assign({}, o, { headers }));
-      if (r.headers.get('X-Brento-Answer') === BrentoSign.answer(word, head)) return r;
-      if (r.status !== 401) throw new Error('Something else answers at this address. Open Brento with its icon.');
-      // Brento was started anew, or another window of this browser came in again: the same once more, signed for that.
-      const run = r.headers.get('X-Brento-Run'), stored = storedWord();
+      if (r.headers.get('X-Daytag-Answer') === DaytagSign.answer(word, head)) return r;
+      if (r.status !== 401) throw new Error('Something else answers at this address. Open Daytag with its icon.');
+      // Daytag was started anew, or another window of this browser came in again: the same once more, signed for that.
+      const run = r.headers.get('X-Daytag-Run'), stored = storedWord();
       if (turn < 3 && run && run !== used) { RUN = run; continue; }
       if (turn < 3 && stored && stored.word !== word.word) { WORD = stored; continue; }
       // Not signed, so only this much of it is believed.
@@ -40,17 +40,17 @@
     history.replaceState(null, '', location.pathname + (q.toString() ? '?' + q : '') + location.hash);
     try {
       if (WORD) given.old = WORD.id;
-      const r = await window.fetch('/api/enter', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Leitstand': '1' }, body: JSON.stringify(given) });
+      const r = await window.fetch('/api/enter', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Daytag': '1' }, body: JSON.stringify(given) });
       if (!r.ok) return;
       const word = await r.json();
       RUN = word.run || '';
       WORD = { id: word.id, word: word.word };
       LET_IN = true;
-      try { localStorage.setItem(BrentoSign.KEY, JSON.stringify(WORD)); } catch (e) { /* then it holds for this window only */ }
+      try { localStorage.setItem(DaytagSign.KEY, JSON.stringify(WORD)); } catch (e) { /* then it holds for this window only */ }
     } catch (e) { /* the page says what it cannot read */ }
   }
   // Another window of this browser came in, or the word was deleted.
-  window.addEventListener('storage', (e) => { if (e.key === BrentoSign.KEY || e.key === null) { readWord(); load(); loadTools(); } });
+  window.addEventListener('storage', (e) => { if (e.key === DaytagSign.KEY || e.key === null) { readWord(); load(); loadTools(); } });
   const $ = (s, r = document) => r.querySelector(s);
   const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
   const esc = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -220,7 +220,7 @@
       html += '<i>/</i><b>' + esc(r ? r.label : route === 'setup' ? 'Welcome' : route === 'settings' ? 'Settings' : '') + '</b>';
     }
     $('#crumb').innerHTML = html;
-    document.title = (r ? r.label + ' · ' : route === 'day' ? 'Day · ' : route === 'setup' ? 'Welcome · ' : route === 'settings' ? 'Settings · ' : '') + 'Brento';
+    document.title = (r ? r.label + ' · ' : route === 'day' ? 'Day · ' : route === 'setup' ? 'Welcome · ' : route === 'settings' ? 'Settings · ' : '') + 'Daytag';
     $('#back').hidden = route === 'home';
   }
   /* Back: one page back, like a browser, and Home when nothing came before. Button, Alt+←, Backspace, mouse back. */
@@ -279,7 +279,7 @@
     else if (roomLeft >= 760) { w = Math.min(roomLeft, 1400); left = sx - w; }
     else { w = Math.round(ow * 0.46); left = sx + ow - w; }
     const popup = () => {
-      const win = window.open(t.url, 'leitstand-' + t.id, 'popup=yes,width=' + w + ',height=' + window.outerHeight + ',left=' + left + ',top=' + window.screenY);
+      const win = window.open(t.url, 'daytag-' + t.id, 'popup=yes,width=' + w + ',height=' + window.outerHeight + ',left=' + left + ',top=' + window.screenY);
       if (!win) { toast('The browser blocked the window. Allow pop-ups for this page, then click again.'); return; }
       try { win.opener = null; win.focus(); } catch (err) { /* the tool's own page may refuse this */ }
     };
@@ -289,7 +289,7 @@
     if (!toolById(t.id) || document.documentElement.classList.contains('in-shell')) { popup(); return; }
     if (Date.now() - (openTool.last[t.id] || 0) < 1500) return;
     openTool.last[t.id] = Date.now();
-    fetch('/api/open', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Leitstand': '1' },
+    fetch('/api/open', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Daytag': '1' },
       body: JSON.stringify({ id: t.id, x: Math.round(left), y: window.screenY, w: Math.round(w), h: window.outerHeight }) })
       .then((r) => { if (!r.ok) throw new Error(); }).catch(popup);
   }
@@ -315,7 +315,7 @@
     } catch (err) { /* the dock still has its pages */ }
   }
   async function toolAction(body) {
-    const res = await fetch('/api/tools', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Leitstand': '1' }, body: JSON.stringify(body) });
+    const res = await fetch('/api/tools', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Daytag': '1' }, body: JSON.stringify(body) });
     const j = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(j.error || 'The server answered ' + res.status);
     takeTools(j);
@@ -412,7 +412,7 @@
       el.title = n + ' unread';
     });
   }
-  if (window.brento) window.brento.onBadges((counts) => { BADGES = counts || {}; paintBadges(); });
+  if (window.daytag) window.daytag.onBadges((counts) => { BADGES = counts || {}; paintBadges(); });
   (function dockWave() {
     const dock = $('#dock');
     let rest = null;
@@ -539,7 +539,7 @@
   }
   // Off Home, or back. The server picks the next card to fill the gap, so Home is read again right away.
   async function setCardRemoved(id, removed) {
-    const res = await fetch('/api/tools', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Leitstand': '1' }, body: JSON.stringify({ action: 'card', id, removed }) });
+    const res = await fetch('/api/tools', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Daytag': '1' }, body: JSON.stringify({ action: 'card', id, removed }) });
     const j = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(j.error || 'The server answered ' + res.status);
     await load();
@@ -598,9 +598,19 @@
      A card's first choice comes from its id and the date, so the set reshuffles every day; a photo another card
      already took passes to the next free one, so no two cards on Home share a picture. A card without a free photo
      keeps its drawn scene. */
-  let PHOTOS = null, photoKey = '', photoPlan = {};
+  let PHOTOS = null, photoKey = '', photoPlan = {}, CREDITS = [];
+  // Most of the photos may be shown only with their author's name.
+  const LICENSES = { 'CC0': 'publicdomain/zero/1.0/', 'CC BY 1.0': 'licenses/by/1.0/', 'CC BY 2.0': 'licenses/by/2.0/', 'CC BY 4.0': 'licenses/by/4.0/', 'CC BY-SA 2.0': 'licenses/by-sa/2.0/',
+    'CC BY-SA 3.0': 'licenses/by-sa/3.0/', 'CC BY-SA 3.0 ee': 'licenses/by-sa/3.0/ee/deed.en', 'CC BY-SA 4.0': 'licenses/by-sa/4.0/' };
+  function creditsHtml() {
+    if (!CREDITS.length) return '';
+    const out = (url, text) => '<a href="' + esc(url) + '" target="_blank" rel="noopener noreferrer">' + esc(text) + '</a>';
+    return '<details class="setup-step"><summary>The photos on the cards: their authors and licenses</summary><p class="note">All from Wikimedia Commons, made smaller for Daytag.</p><ul class="wz-sum">'
+      + CREDITS.map((p) => '<li>' + out(p.source, p.title.replace(/\.[A-Za-z]{3,4}$/, '')) + ', ' + esc(p.author) + ', ' + (LICENSES[p.license] ? out('https://creativecommons.org/' + LICENSES[p.license], p.license) : esc(p.license)) + '</li>').join('') + '</ul></details>';
+  }
   fetch('/photos/credits.json').then((r) => (r.ok ? r.json() : [])).then((list) => {
     PHOTOS = {};
+    CREDITS = list;
     list.forEach((p) => { (PHOTOS[p.level] = PHOTOS[p.level] || []).push(p.id); });
     photoKey = '';
     if (S && route === 'home') renderHome();
@@ -662,9 +672,9 @@
   // One that was read and only carries no date has no note.
   const unread = () => S.sources.filter((s) => s.state === 'unknown' && s.note && (s.id !== 'calendar' || S.calendarConnected));
   const lostNow = () => unread().filter((s) => s.note !== 'still loading');
-  // With nothing to read, a calm screen would claim something Brento cannot know.
+  // With nothing to read, a calm screen would claim something Daytag cannot know.
   const nothingYet = () => !S.vaultProblem && !S.sources.some((s) => s.id !== 'calendar' || S.calendarConnected);
-  // Only what Brento has looked at.
+  // Only what Daytag has looked at.
   function quietWhy() {
     const has = (id) => S.sources.some((s) => s.id === id), parts = [];
     if (S.calendarConnected && has('calendar')) parts.push('no meeting');
@@ -676,14 +686,14 @@
   function quietCard() {
     const notes = !S.pagesOff.includes('library'), missing = 'Connect your calendar, your ' + (notes ? 'tasks' : 'notes') + ' or your board';
     if (nothingYet()) return { id: 'quiet', kind: 'pipeline', level: 'calm', eyebrow: 'Start here', tag: '', title: notes ? 'No dates are connected yet' : 'Nothing is connected yet',
-      body: missing + (S.phone ? ' in Brento on the computer.' : ', and this page tells you what needs you.'),
-      why: 'Until then there is nothing Brento could read.', source: 'Sources', sourceState: 'unknown', sourceAge: 'none yet', route: S.phone ? 'today' : 'settings', heat: 0, fog: 0.08 };
+      body: missing + (S.phone ? ' in Daytag on the computer.' : ', and this page tells you what needs you.'),
+      why: 'Until then there is nothing Daytag could read.', source: 'Sources', sourceState: 'unknown', sourceAge: 'none yet', route: S.phone ? 'today' : 'settings', heat: 0, fog: 0.08 };
     const lost = unread();
     if (lost.length || S.vaultProblem) {
       const loading = !S.vaultProblem && lost.every((s) => s.note === 'still loading');
       return { id: 'quiet', kind: 'pipeline', level: 'calm', eyebrow: 'N/A', tag: '', title: loading ? 'Still reading' : 'Not everything could be read',
         body: lost.length ? lost.map((s) => s.label + (s.note ? ': ' + s.note : '')).join('. ') + '.' : S.vaultProblem.charAt(0).toUpperCase() + S.vaultProblem.slice(1) + '.',
-        why: 'So Brento cannot say that nothing needs you.', source: 'Sources', sourceState: 'unknown', sourceAge: 'age unknown', route: 'brain', heat: 0, fog: 0.08 };
+        why: 'So Daytag cannot say that nothing needs you.', source: 'Sources', sourceState: 'unknown', sourceAge: 'age unknown', route: 'brain', heat: 0, fog: 0.08 };
     }
     const dated = S.deadlines.filter((d) => d.due >= S.today).sort((a, b) => a.due.localeCompare(b.due));
     return { id: 'quiet', kind: 'pipeline', level: 'calm', eyebrow: 'All quiet', tag: '', title: 'Nothing needs preparing',
@@ -880,7 +890,7 @@
     const num = '<span class="num">' + String(i + 1).padStart(2, '0') + '</span><div class="row-main">' + main + '</div>';
     if (!target) return '<div class="row">' + num + '<span class="row-end">' + end + '</span></div>';
     const outward = target.startsWith('http');
-    return '<a class="row" href="' + esc(target) + '"' + (outward ? ' target="_blank" rel="noopener noreferrer" title="Opens outside Brento"' : '') + '>' + num + '<span class="row-end">' + end + icon(outward ? 'out' : 'chev') + '</span></a>';
+    return '<a class="row" href="' + esc(target) + '"' + (outward ? ' target="_blank" rel="noopener noreferrer" title="Opens outside Daytag"' : '') + '>' + num + '<span class="row-end">' + end + icon(outward ? 'out' : 'chev') + '</span></a>';
   }
   /* Page data refreshes in the background. The reader keeps their place and whatever they had open. */
   function refreshInPlace() {
@@ -922,7 +932,7 @@
       html += '<div class="today-grid"><section class="do-next" style="--c:' + Art.accent(first.kind) + '"><div class="label">DO NEXT<span class="pill">' + esc(first.eyebrow) + '</span>' + (first.tag ? '<span class="pill">' + esc(first.tag) + '</span>' : '') + '</div>'
         + '<h2>' + esc(first.title) + '</h2>' + (first.body ? '<p>' + esc(first.body) + '</p>' : '') + '<div class="why">' + esc(first.why) + '</div>'
         + '<div class="next-actions">' + (target ? '<a class="btn primary" href="' + esc(target) + '">' + (first.route ? 'Open ' + esc(routeLabel(first.route)) : 'Open note') + '</a>' : '')
-        + '<button class="btn" type="button" data-ask="' + esc('Give me the smallest first step, five minutes at most, for: ' + first.title + '. ' + (first.body || '')) + '">Ask for the smallest first step</button>' + originHtml(first) + '</div></section>' + dates + '</div>';
+        + (S.pagesOff.includes('ask') ? '' : '<button class="btn" type="button" data-ask="' + esc('Give me the smallest first step, five minutes at most, for: ' + first.title + '. ' + (first.body || '')) + '">Ask for the smallest first step</button>') + originHtml(first) + '</div></section>' + dates + '</div>';
     } else {
       html += '<div class="today-grid"><div class="empty">Nothing has earned the top spot.</div>' + dates + '</div>';
     }
@@ -981,7 +991,7 @@
   function calendarBlock() {
     const src = S.sources.find((s) => s.id === 'calendar') || { state: 'fresh' };
     // A phone only reads. The calendar is connected or disconnected on the computer.
-    if (S.phone) return S.calendarConnected ? '' : '<p class="note">No calendar connected yet. Connect it in Brento on your computer.</p>';
+    if (S.phone) return S.calendarConnected ? '' : '<p class="note">No calendar connected yet. Connect it in Daytag on your computer.</p>';
     if (S.calendarConnected) return '<p class="note">Calendar ' + (src.state === 'fresh' ? 'connected' : esc(src.note || 'connected')) + '. <button class="link-btn" type="button" id="cal-off">Disconnect</button></p>';
     return '<p class="note">No calendar connected, so meetings are missing. <a class="link-btn" href="#setup/3">Connect your calendar</a></p>';
   }
@@ -1042,7 +1052,7 @@
     pageWrap(pageHead('Projects', 'Measured from the board, the repo and the note. A project with no cards shows N/A, not a guess.', '<span class="pill" id="project-count"></span>')
       + '<div class="chips"><input class="search" id="project-search" type="search" placeholder="Find a project" aria-label="Find a project" value="' + esc(projectQuery) + '">' + chip('all', 'All') + chip('active', 'Active') + chip('quiet', 'Quiet') + chip('demo', 'Demo only') + chip('down', 'Down') + chip('unknown', 'N/A') + '</div>'
       + '<div class="table" id="project-table"></div>'
-      + (stray.length ? '<div class="rows" style="margin-top:12px"><details class="fold" data-key="stray"><summary class="row"><span class="num">' + stray.length + '</span><div class="row-main"><b>Open cards no project claims</b><small>Add them to a project in projects.json in your Brento folder, or move them on the board</small></div><span class="row-end">' + icon('chev') + '</span></summary><div class="fold-body"><div class="lane-list">' + stray.map(ticket).join('') + '</div></div></details></div>' : ''));
+      + (stray.length ? '<div class="rows" style="margin-top:12px"><details class="fold" data-key="stray"><summary class="row"><span class="num">' + stray.length + '</span><div class="row-main"><b>Open cards no project claims</b><small>Add them to a project in projects.json in your Daytag folder, or move them on the board</small></div><span class="row-end">' + icon('chev') + '</span></summary><div class="fold-body"><div class="lane-list">' + stray.map(ticket).join('') + '</div></div></details></div>' : ''));
     paintProjectTable();
     const input = $('#project-search');
     input.oninput = () => { projectQuery = input.value; paintProjectTable(); };
@@ -1132,11 +1142,11 @@
     const topics = LIB.notes.filter((n) => n.path.startsWith('MOCs/')).sort((a, b) => (b.path.includes('start here') - a.path.includes('start here')) || a.title.localeCompare(b.title));
     const recent = LIB.notes.filter((n) => !/^(outputs|wiki|reports)\//.test(n.path)).sort((a, b) => b.mtime - a.mtime).slice(0, 10);
     main.innerHTML = '<header class="ph"><h1>Library</h1><p>' + LIB.notes.length + ' notes from your vault, readable here.</p></header>'
-      + '<h2 class="section-title">Topics <span>' + topics.length + '</span></h2><div class="topic-grid">'
-      + topics.map((n) => '<a class="topic" href="' + esc(noteHref(n.path)) + '"><span class="avatar" style="--tile:' + tileColor(n.path) + '">' + esc(initials(n.title)) + '</span><b>' + esc(n.title) + '</b></a>').join('') + '</div>'
+      + (topics.length ? '<h2 class="section-title">Topics <span>' + topics.length + '</span></h2><div class="topic-grid">'
+      + topics.map((n) => '<a class="topic" href="' + esc(noteHref(n.path)) + '"><span class="avatar" style="--tile:' + tileColor(n.path) + '">' + esc(initials(n.title)) + '</span><b>' + esc(n.title) + '</b></a>').join('') + '</div>' : '')
       + '<h2 class="section-title">Recently changed</h2><div class="rows">' + recent.map(noteRow).join('') + '</div>'
       + '<h2 class="section-title">Tags</h2><div class="chips">' + LIB.tags.map(([t, c]) => '<a class="chip" href="' + esc(tagHref(t)) + '">' + esc(t) + ' <b>' + c + '</b></a>').join('') + '</div>';
-    document.title = 'Library · Brento';
+    document.title = 'Library · Daytag';
   }
   function sectionLabel(folder) { const s = LIB.sections.find((x) => x.folder === folder); return s ? s.label : folder; }
   function crumbsHtml(path, last) {
@@ -1161,7 +1171,7 @@
       + '<header class="ph"><h1>' + esc(title) + '</h1><p>' + (folder ? under.length : direct.length) + ' notes</p></header>'
       + (names.length ? '<div class="topic-grid folders">' + names.map((n) => '<a class="topic" href="' + esc(folderHref(prefix + n)) + '"><span class="avatar folder" style="--tile:' + tileColor(n) + '">' + icon('projects') + '</span><b>' + esc(n) + '</b><small>' + subs[n] + '</small></a>').join('') + '</div>' : '')
       + (direct.length ? '<div class="rows">' + direct.map(noteRow).join('') + '</div>' : '');
-    document.title = title + ' · Brento';
+    document.title = title + ' · Daytag';
   }
   function paintTag(tag) {
     const list = LIB.notes.filter((n) => n.tags.includes(tag));
@@ -1190,7 +1200,7 @@
     main.innerHTML = crumbsHtml(path.split('/').slice(0, -1).join('/'), '')
       + '<div class="note-grid"><article class="reader"><h1>' + esc(note.title) + '</h1>' + (pills.length ? '<div class="reader-meta">' + pills.join('') + '<time>changed ' + shortDate(note.mtime) + '</time></div>' : '') + note.html + '</article>'
       + '<aside class="note-rail"><h3>Linked from <span>' + note.backlinks.length + '</span></h3>' + (note.backlinks.length ? note.backlinks.map((b) => '<a href="' + esc(noteHref(b.path)) + '">' + esc(b.title) + '</a>').join('') : '<p class="note">No other note links here.</p>') + '</aside></div>';
-    document.title = note.title + ' · Brento';
+    document.title = note.title + ' · Daytag';
   }
   async function paintSearch(raw) {
     const q = raw.trim();
@@ -1307,7 +1317,7 @@
       + '<h2 class="section-title">Silent <span>click for the reason and the next step</span></h2><div class="rows">'
       + (l.stillRows.map((r, i) => '<details class="fold" data-key="' + esc(r.name) + '"><summary class="row"><span class="num">' + String(i + 1).padStart(2, '0') + '</span><div class="row-main"><b>' + esc(r.name) + '</b><small>limit ' + esc(r.limit) + '</small></div><span class="row-end"><span class="big-right">' + esc(ageWord(r.age)) + '</span>' + icon('chev') + '</span></summary>'
         + '<div class="fold-body"><p>' + esc(r.why) + '</p>' + (r.proof ? '<small>Evidence: ' + esc(r.proof) + '</small>' : '')
-        + '<button class="chip" type="button" data-ask="' + esc(silence(r) + ' (limit ' + r.limit + '). What is it for, does it still matter, and what is the smallest next step?') + '">Ask what to do about it</button></div></details>').join('') || '<div class="empty">Nothing silent.</div>') + '</div>'
+        + (S.pagesOff.includes('ask') ? '' : '<button class="chip" type="button" data-ask="' + esc(silence(r) + ' (limit ' + r.limit + '). What is it for, does it still matter, and what is the smallest next step?') + '">Ask what to do about it</button>') + '</div></details>').join('') || '<div class="empty">Nothing silent.</div>') + '</div>'
       + '<h2 class="section-title">What this app is reading <span>age against each source\'s own limit</span></h2><div class="rows">'
       + S.sources.map((s, i) => rowHtml(i, '<b>' + esc(s.label) + '</b><small>' + esc(s.path) + (s.note ? ' · ' + esc(s.note) : '') + '</small>', '<span class="pill ' + ({ fresh: 'ok', stale: 'warn', unknown: 'bad' }[s.state]) + '"><span class="dot ' + s.state + '"></span>' + (s.ageDays === null ? 'N/A' : s.ageDays + 'd, limit ' + s.maxAge + 'd') + '</span>', s.route ? '#' + s.route : (s.notePath ? noteHref(s.notePath) : ''))).join('') + '</div>'
       + '<h2 class="section-title">Alive <span>' + l.aliveRows.length + '</span></h2><div class="chips">' + l.aliveRows.map((r) => '<span class="pill ok">' + esc(r.name) + ' · ' + esc(r.age) + '</span>').join('') + '</div>'
@@ -1319,7 +1329,7 @@
   }
   function renderSources() {
     const fresh = S.sources.filter((s) => s.state === 'fresh').length;
-    pageWrap(pageHead('Brain', 'What Brento reads, and how old each source is against its own limit. A source that cannot be read says N/A.', (S && S.phone ? '' : '<a class="btn primary" href="#settings">Sources and setup</a>'))
+    pageWrap(pageHead('Brain', 'What Daytag reads, and how old each source is against its own limit. A source that cannot be read says N/A.', (S && S.phone ? '' : '<a class="btn primary" href="#settings">Sources and setup</a>'))
       + '<div class="tiles">' + tile('Sources fresh', fresh + ' / ' + S.sources.length, S.hidden ? S.hidden + ' hidden by the privacy list' : '') + '</div>'
       + '<div class="rows">' + (sourceRows() || '<div class="empty">No source is switched on. Open the setup to choose some.</div>') + '</div>');
   }
@@ -1328,7 +1338,14 @@
 
   /* Ask */
   const ask = { thread: [], busy: false, status: null, abort: null, draft: '' };
+  const TWICE = 'The Daytag from GitHub is installed on this computer too, and both would start. <button class="link-btn" type="button" data-other="1">Remove that one</button>: its own window asks first, and can open behind this one. Keep the settings when it asks.';
+  const REPORT = 'https://github.com/eugnmueller-87/daytag/issues/new?title=A%20bad%20answer%20in%20the%20Ask%20box', PRIVACY = 'https://github.com/eugnmueller-87/daytag/blob/main/PRIVACY.md';
   const SUGGEST = ['What should I do right now?', 'Which applications have gone quiet the longest?', 'What did I decide last week?'];
+  // Where a bad answer is reported: to an address, or else on GitHub, which needs an account there.
+  const aiNote = () => '<p class="note ask-note">The answers come from Claude, an AI, and can be wrong. '
+    + (S && S.contact ? '<a href="mailto:' + esc(S.contact) + '?subject=Daytag%3A%20a%20bad%20answer">Report a bad answer</a> to ' + esc(S.contact)
+      : '<a href="' + REPORT + '" target="_blank" rel="noopener noreferrer">Report a bad answer</a>') + '</p>';
+  const suggested = () => SUGGEST.filter((q) => !/applications/.test(q) || (S && !S.pagesOff.includes('pipeline')));
   function miniMd(text) {
     const lines = esc(text).split('\n');
     let html = '', list = false;
@@ -1367,8 +1384,9 @@
     pageWrap(pageHead('Ask', sub)
       + '<div class="ask-wrap"><div class="thread" id="thread"></div>'
       + (st && !st.ready ? '<div class="msg bot err">' + esc(st.reason) + '</div>' : '')
-      + (ask.thread.length ? '' : '<div class="suggest">' + SUGGEST.map((q) => '<button class="chip" type="button" data-q="' + esc(q) + '">' + esc(q) + '</button>').join('') + '</div>')
-      + '<form class="composer" id="composer"><textarea id="q" rows="1" placeholder="Ask your vault" aria-label="Your question">' + esc(ask.draft) + '</textarea><button class="send" id="send" type="submit"' + (st && !st.ready ? ' disabled' : '') + '>Ask</button></form></div>');
+      + (ask.thread.length ? '' : '<div class="suggest">' + suggested().map((q) => '<button class="chip" type="button" data-q="' + esc(q) + '">' + esc(q) + '</button>').join('') + '</div>')
+      + '<form class="composer" id="composer"><textarea id="q" rows="1" placeholder="Ask your vault" aria-label="Your question">' + esc(ask.draft) + '</textarea><button class="send" id="send" type="submit"' + (st && !st.ready ? ' disabled' : '') + '>Ask</button></form>'
+      + aiNote() + '</div>');
     paintThread();
     const q = $('#q');
     q.oninput = () => { ask.draft = q.value; q.style.height = 'auto'; q.style.height = q.scrollHeight + 'px'; };
@@ -1391,7 +1409,7 @@
     if (route === 'ask') renderAsk();
     let endedCleanly = false;
     try {
-      const res = await fetch('/api/ask', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Leitstand': '1' }, body: JSON.stringify({ q: text, history }), signal: ask.abort.signal });
+      const res = await fetch('/api/ask', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Daytag': '1' }, body: JSON.stringify({ q: text, history }), signal: ask.abort.signal });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
         throw new Error(j.error || 'The server answered ' + res.status);
@@ -1438,7 +1456,7 @@
     const q = $('#palette-input').value.trim().toLowerCase();
     const hit = (s) => !q || s.toLowerCase().includes(q);
     const items = [];
-    ROUTES.forEach((r) => { if (hit(r.label)) items.push({ label: r.label, hint: 'Page', go: () => navigate(r.id) }); });
+    ROUTES.filter((r) => !((S && S.pagesOff) || []).includes(r.id)).forEach((r) => { if (hit(r.label)) items.push({ label: r.label, hint: 'Page', go: () => navigate(r.id) }); });
     TOOLS.forEach((t) => { if (q && hit(t.name)) items.push({ label: t.name, hint: 'Tool', go: (e) => openTool(t, e) }); });
     (S ? S.projects.rows : []).forEach((p) => { if (q && hit(p.name)) items.push({ label: p.name, hint: 'Project', go: () => navigate('projects/' + encodeURIComponent(p.id)) }); });
     (S ? S.focus : []).forEach((c, i) => { if (q && hit(c.title)) items.push({ label: c.title, hint: 'Card', go: () => { cur = i; if (route === 'home') renderHome(); else navigate('home'); } }); });
@@ -1523,15 +1541,15 @@
       + (sc.items.length ? '<div class="rows">' + rows.join('') + '</div>' : '');
   }
 
-  /* Setup: the vault, the sources, the board, the calendar and the dock's tools. Brento writes only to its own folder. */
+  /* Setup: the vault, the sources, the board, the calendar and the dock's tools. Daytag writes only to its own folder. */
   let SETUP = null;
   const setupOpt = (type, name, value, checked, title, small, disabled) => '<label class="setup-opt' + (disabled ? ' done' : '') + '"><input type="' + type + '" name="' + name + '" value="' + esc(value) + '"'
     + (checked ? ' checked' : '') + (disabled ? ' disabled' : '') + '><b>' + esc(title) + '</b>' + (small ? '<small>' + esc(small) + '</small>' : '') + '</label>';
   const setupStatus = (ok, text) => '<span class="pill ' + (ok ? 'ok' : 'warn') + '"><span class="dot ' + (ok ? 'fresh' : 'stale') + '"></span>' + esc(text) + '</span>';
   const grouped = (list) => list.reduce((out, x) => { let g = out.find((y) => y.name === x.group); if (!g) out.push(g = { name: x.group, items: [] }); g.items.push(x); return out; }, []);
   function renderSettings() {
-    if (S && S.phone) { pageWrap(pageHead('Settings', 'The setup lives on your computer. Open Brento there to change it.')); return; }
-    pageWrap(pageHead('Settings', 'Choose what Brento reads. It runs on this computer, only reads your notes, board and calendar, and writes only to its own folder.')
+    if (S && S.phone) { pageWrap(pageHead('Settings', 'The setup lives on your computer. Open Daytag there to change it.')); return; }
+    pageWrap(pageHead('Settings', 'Choose what Daytag reads. It runs on this computer, only reads your notes, board and calendar, and writes only to its own folder.')
       + '<div class="setup" id="setup"><div class="empty">Checking what is installed on this computer…</div></div>');
     fetch('/api/setup').then(async (r) => { const j = await r.json(); if (!r.ok) throw new Error(j.error || 'HTTP ' + r.status); SETUP = j; paintSetup(); })
       .catch((err) => { const box = $('#setup'); if (box) box.innerHTML = '<div class="empty">' + esc(err.message) + '</div>'; });
@@ -1540,21 +1558,21 @@
   function phoneHtml(P) {
     if (!P) return '<p class="note">Checking…</p>';
     const win = !!SETUP && SETUP.platform === 'win32', mac = !!SETUP && SETUP.platform === 'darwin';
-    if (!P.on) return '<button class="btn" type="button" id="ph-on">Use Brento on my phone</button>'
-      + (win ? '<p class="note">Windows then asks about Python. That is Brento: click Allow. On a computer you are not the administrator of, it asks once for the administrator.</p>' : '')
-      + (mac ? '<p class="note">If macOS asks whether Brento may accept connections, click Allow.</p>' : '');
+    if (!P.on) return '<button class="btn" type="button" id="ph-on">Use Daytag on my phone</button>'
+      + (win ? '<p class="note">Windows then asks about Python. That is Daytag: click Allow. On a computer you are not the administrator of, it asks once for the administrator.</p>' : '')
+      + (mac ? '<p class="note">If macOS asks whether Daytag may accept connections, click Allow.</p>' : '');
     const addr = (a) => '<b class="ph-addr">' + esc(a.ip) + ':' + P.port + '</b>';
     const home = P.addresses.filter((a) => a.kind === 'home'), away = P.addresses.filter((a) => a.kind === 'tailscale');
     let html = P.error ? '<p class="tools-error">' + esc(P.error) + '</p>' : '';
     html += '<ol class="wz-steps"><li>Phone and computer on the same Wi-Fi. On the phone, open Safari (iPhone) or Chrome (Android) and type '
-      + (home.length ? home.map(addr).join(' or ') : 'this computer\'s address (Brento found none: is the computer on Wi-Fi?)') + '</li>'
-      + '<li>iPhone: tap Share, then "Add to Home Screen". Android: the menu, then "Add to Home screen". Open Brento from the new icon.</li>'
+      + (home.length ? home.map(addr).join(' or ') : 'this computer\'s address (Daytag found none: is the computer on Wi-Fi?)') + '</li>'
+      + '<li>iPhone: tap Share, then "Add to Home Screen". Android: the menu, then "Add to Home screen". Open Daytag from the new icon.</li>'
       + '<li>There, type the code ' + (P.code ? '<b class="ph-code">' + esc(P.code.slice(0, 3) + ' ' + P.code.slice(3)) + '</b> (for ' + Math.max(1, Math.ceil(P.codeLeft / 60)) + ' more minutes)' : '(none open)')
       + ' <button class="link-btn" type="button" id="ph-code">New code</button></li></ol>';
     if (away.length) html += '<p class="note">Away from home, with Tailscale on the phone and this computer: ' + away.map(addr).join(' or ') + '</p>';
-    return html + '<p class="note">' + (P.phones === 1 ? 'One phone is paired.' : P.phones + ' phones are paired.') + ' A phone reads Brento and can ask, it can never change the setup. '
+    return html + '<p class="note">' + (P.phones === 1 ? 'One phone is paired.' : P.phones + ' phones are paired.') + ' A phone reads Daytag and can ask, it can never change the setup. '
       + 'Use it at home or over Tailscale, not on public Wi-Fi.</p>'
-      + (win ? '<p class="note">The phone cannot open the address? Open Windows Security, Firewall & network protection, Allow an app through firewall, Change settings, and tick the Python in the Brento folder. And set your Wi-Fi to Private network.</p>' : '')
+      + (win ? '<p class="note">The phone cannot open the address? Open Windows Security, Firewall & network protection, Allow an app through firewall, Change settings, and tick the Python in the Daytag folder. And set your Wi-Fi to Private network.</p>' : '')
       + '<p class="note">' + (P.phones ? '<button class="link-btn" type="button" id="ph-forget">Remove all phones</button> · ' : '') + '<button class="link-btn" type="button" id="ph-off">Switch off</button></p>';
   }
   function paintPhone() {
@@ -1593,17 +1611,17 @@
     const on = (s) => (SETUP.needed ? s.new : !!(P.sources[s.id] || {}).on);
     const step = (n, title, pill, sub, body) => '<section class="setup-step"><h3><span class="num">' + n + '</span>' + esc(title) + (pill || '') + '</h3>' + (sub ? '<p>' + esc(sub) + '</p>' : '') + body + '</section>';
     const listed = SETUP.vaults.some((v) => v.path === P.vault);
-    let html = step('1', 'You', '', 'Your first name. Brento uses it to know which rows in an Owner column are yours.',
+    let html = step('1', 'You', '', 'Your first name. Daytag uses it to know which rows in an Owner column are yours.',
       '<div class="setup-field"><label for="su-name">First name</label><input id="su-name" maxlength="40" value="' + esc(P.name) + '" autocomplete="given-name"></div>'
       + (SETUP.shared ? '<label class="wz-check"><input type="checkbox" id="su-keep"' + (P.keepBrowsers ? ' checked' : '') + '> Keep this browser let in after a restart</label>'
-        + '<p class="note">This computer has more than one account. So after each start Brento opens with its icon first, and bookmarks work from then on. Tick this only if you trust the others, and the programs that run under their accounts.</p>' : ''));
-    html += step('2', 'Your Obsidian vault', '', 'Brento reads your notes from this folder and never changes them. These are the vaults Obsidian itself knows on this computer.',
+        + '<p class="note">This computer has more than one account. So after each start Daytag opens with its icon first, and bookmarks work from then on. Tick this only if you trust the others, and the programs that run under their accounts.</p>' : ''));
+    html += step('2', 'Your Obsidian vault', '', 'Daytag reads your notes from this folder and never changes them. These are the vaults Obsidian itself knows on this computer.',
       '<div class="setup-grid">' + SETUP.vaults.map((v) => setupOpt('radio', 'su-vault', v.path, P.vault === v.path || (!P.vault && SETUP.needed && v.open), v.name, v.path + (v.open ? ' · open in Obsidian' : ''))).join('')
       + setupOpt('radio', 'su-vault', '__other', !!P.vault && !listed, 'Another folder', 'Type its full path below')
       + setupOpt('radio', 'su-vault', '', !P.vault && !(SETUP.needed && SETUP.vaults.some((v) => v.open)), 'No vault', 'Calendar and board only. Notes, tasks and Ask stay off.') + '</div>'
       + '<div class="setup-field"><label for="su-vault-path">Folder path</label><input id="su-vault-path" value="' + esc(listed ? '' : P.vault) + '" spellcheck="false" placeholder="Full path of the vault folder"></div>'
       + '<p class="note"><a class="link-btn" href="#setup/1">Choose your notes step by step</a></p>'
-      + (SETUP.vaultMissing ? '<p class="tools-error">This folder is not there at the moment: ' + esc(P.vault) + '. It may have been renamed, or its drive is not connected. Brento goes on without your notes until you choose the folder again here.</p>' : ''));
+      + (SETUP.vaultMissing ? '<p class="tools-error">This folder is not there at the moment: ' + esc(P.vault) + '. It may have been renamed, or its drive is not connected. Daytag goes on without your notes until you choose the folder again here.</p>' : ''));
     html += step('3', 'Sources', '', 'Switch on what you use. A source that is on but cannot be read shows N/A on the Brain page, never an empty success.',
       grouped(SETUP.sources).map((g) => '<div class="setup-group">' + esc(g.name) + '</div><div class="setup-grid">' + g.items.map((s) => '<div>' + setupOpt('checkbox', 'su-src', s.id, on(s), s.label, s.about)
         + (s.path ? '<div class="setup-field"><label for="su-path-' + s.id + '">Note in the vault</label><input id="su-path-' + s.id + '" data-path="' + s.id + '" value="' + esc((P.sources[s.id] || {}).path || s.path) + '" spellcheck="false"></div>' : '') + '</div>').join('') + '</div>').join('')
@@ -1611,36 +1629,59 @@
       + '<option value="priority"' + (P.tasks.home === 'priority' ? ' selected' : '') + '>Only tasks marked medium priority or higher</option></select></div>');
     const B = P.board, gh = SETUP.gh;
     html += step('4', 'GitHub Project board', setupStatus(gh.ready, gh.ready ? 'signed in' + (gh.login ? ' as ' + gh.login : '') : 'not signed in'),
-      'Brento reads the board through GitHub\'s own program, with your sign-in. Cards in the lanes HIGH, MID and LOW count; a HIGH card with a date inside a week reaches Home.',
+      'Daytag reads the board through GitHub\'s own program, with your sign-in. Cards in the lanes HIGH, MID and LOW count; a HIGH card with a date inside a week reaches Home.',
       (gh.ready ? '<p class="note"><a class="link-btn" href="#setup/2">Choose a board, or make a new one, step by step</a></p>' : '<p class="note">' + esc(gh.reason) + ' <a class="link-btn" href="#setup/2">Sign in to GitHub</a></p>')
       + '<div class="setup-row"><div class="setup-field"><label for="su-owner">Owner: your login or an organization</label><input id="su-owner" value="' + esc(B.owner) + '" spellcheck="false"></div>'
       + '<div class="setup-field"><label for="su-kind">The owner is</label><select id="su-kind"><option value="user"' + (B.ownerType !== 'org' ? ' selected' : '') + '>a person</option><option value="org"' + (B.ownerType === 'org' ? ' selected' : '') + '>an organization</option></select></div>'
       + '<div class="setup-field"><label for="su-num">Project number</label><input id="su-num" inputmode="numeric" value="' + esc(B.number || '') + '" placeholder="the number at the end of its address"></div>'
       + '<div class="setup-field"><button class="btn" type="button" id="su-probe">Check the board</button></div></div><div id="su-fields">' + boardFields(null) + '</div>');
-    html += step('5', 'Calendar', setupStatus(SETUP.calendarConnected, SETUP.calendarConnected ? 'connected' : 'not connected'), 'A private iCal link, read only. It stays in a file in your Brento folder and never goes back to a page.',
+    html += step('5', 'Calendar', setupStatus(SETUP.calendarConnected, SETUP.calendarConnected ? 'connected' : 'not connected'), 'A private iCal link, read only. It stays in a file in your Daytag folder and never goes back to a page.',
       SETUP.calendarConnected ? '<p class="note">Connected. <button class="link-btn" type="button" id="cal-off">Disconnect</button></p>'
         : '<p class="note"><a class="link-btn" href="#setup/3">Connect your calendar</a>: Google, Outlook or Apple iCloud, in four short steps. Repeating appointments are left out.</p>');
     const C = SETUP.claude;
     html += step('6', 'Ask box', C ? setupStatus(C.ready, C.ready ? 'Claude Code ready' + (C.plan ? ', ' + C.plan : '') : 'not ready') : '<span class="pill">off</span>',
-      'Questions about your notes, answered by the claude program on this computer under your own Claude login. Brento never sees or stores the login, and refuses to run on an API key. Questions count against your Claude plan, and what Claude reads for an answer goes to Claude.',
-      C && !C.ready ? '<p class="note">' + esc(C.reason) + (/not installed/i.test(C.reason) ? '' : ' <a class="link-btn" href="#setup/6">Sign in to Claude</a>') + '</p>' : '');
+      'Questions about your notes, answered by the claude program on this computer under your own Claude login. Daytag never sees or stores the login, and refuses to run on an API key. Questions count against your Claude plan, and what Claude reads for an answer goes to Claude.',
+      (C && !C.ready ? '<p class="note">' + esc(C.reason) + (/not installed/i.test(C.reason) ? '' : ' <a class="link-btn" href="#setup/6">Sign in to Claude</a>') + '</p>' : '') + aiNote());
     html += step('7', 'Tools for your dock', '', 'Pick the apps you use every day. They join the dock as their own windows. Remove one later with a right-click on it.',
       grouped(SETUP.catalog).map((g) => '<div class="setup-group">' + esc(g.name) + '</div><div class="setup-grid">' + g.items.map((t) => setupOpt('checkbox', 'su-tool', t.id, t.added, t.name, t.added ? 'In your dock' : t.url.replace(/^https?:\/\//, '').replace(/\/$/, ''), t.added)).join('') + '</div>').join(''));
     const SL = P.slack || { digest: '08:00', alerts: true, remind: 10, sources: ['calendar', 'board', 'tasks'] };
     html += step('8', 'Slack', setupStatus(SETUP.slackConnected, SETUP.slackConnected ? 'connected' : 'not connected'), 'A morning summary, a note when something new needs you, a reminder before meetings. Through a webhook you make in your own Slack.',
       (SETUP.slackError ? '<p class="tools-error">' + esc(SETUP.slackError) + '</p>' : '')
       + (SETUP.slackConnected ? '<p class="note"><button class="link-btn" type="button" id="sl-test">Send a test</button> · <button class="link-btn" type="button" id="sl-off">Disconnect</button></p>'
-        : '<p class="note"><a href="' + esc(SETUP.slackCreate) + '" target="_blank" rel="noopener noreferrer">Create the Brento app in Slack</a>, then Incoming Webhooks, Add New Webhook, pick a channel, Allow, and paste the link. Or <a class="link-btn" href="#setup/4">step by step</a>.</p><div class="cal-form"><div><input id="sl-url" type="password" placeholder="https://hooks.slack.com/services/…" autocomplete="off"><button class="btn" type="button" id="sl-go">Connect</button></div></div>')
+        : '<p class="note"><a href="' + esc(SETUP.slackCreate) + '" target="_blank" rel="noopener noreferrer">Create the Daytag app in Slack</a>, then Incoming Webhooks, Add New Webhook, pick a channel, Allow, and paste the link. Or <a class="link-btn" href="#setup/4">step by step</a>.</p><div class="cal-form"><div><input id="sl-url" type="password" placeholder="https://hooks.slack.com/services/…" autocomplete="off"><button class="btn" type="button" id="sl-go">Connect</button></div></div>')
       + '<div class="setup-row"><div class="setup-field"><label for="sl-digest">Morning summary at</label><input id="sl-digest" type="time" value="' + esc(SL.digest) + '"></div>'
       + '<div class="setup-field"><label for="sl-remind">Reminder before meetings</label><select id="sl-remind">' + [0, 5, 10, 15, 30].map((m) => '<option value="' + m + '"' + (Number(SL.remind) === m ? ' selected' : '') + '>' + (m ? m + ' minutes' : 'Off') + '</option>').join('') + '</select></div></div>'
       + '<label class="wz-check"><input type="checkbox" id="sl-alerts"' + (SL.alerts ? ' checked' : '') + '> Tell me when something new needs me</label>'
       + '<div class="setup-group">What may go to Slack</div><div class="setup-grid">' + [['calendar', 'Meetings'], ['board', 'Board cards'], ['tasks', 'Obsidian tasks'], ['open-items', 'Open matters'], ['pipeline', 'Job applications']].map((x) => setupOpt('checkbox', 'sl-src', x[0], SL.sources.includes(x[0]), x[1], '')).join('') + '</div>');
-    html += step('9', 'Phone', '', 'Brento on your iPhone or Android phone, through this computer. Nothing to install on the phone, only an icon on its home screen.',
+    if (!SETUP.store) html += step('9', 'Phone', '', 'Daytag on your iPhone or Android phone, through this computer. Nothing to install on the phone, only an icon on its home screen.',
       '<div id="phone-box">' + phoneHtml(PHONE) + '</div>');
-    html += '<div class="setup-actions"><button class="btn primary" type="button" id="su-save">' + (SETUP.needed ? 'Save and open Brento' : 'Save') + '</button><p class="tools-error" id="su-error" role="alert"></p><span class="note">Settings: ' + esc(SETUP.home) + '</span></div>';
+    else html += step('9', 'Starting and removing', '', 'This Daytag came from the Microsoft Store: Windows starts it, updates it and removes it.',
+      (SETUP.twice ? '<p class="tools-error">' + TWICE + '</p>' : '')
+      + '<label class="wz-check"><input type="checkbox" id="su-auto"' + (P.autostart ? ' checked' : '') + '> Start Daytag when I sign in to Windows</label>'
+      + '<p class="note">Slack messages come only while Daytag runs. If it does not start although this is ticked, Daytag is off under <a class="link-btn" href="ms-settings:startupapps">Windows Settings, Startup</a>.</p>'
+      + '<p class="note">An update waits until Daytag has ended, at the latest when you restart the computer. '
+      + '<button class="link-btn" type="button" id="su-quit">Quit Daytag now</button>, and open it again with its icon.</p>'
+      + '<p class="note">To remove it, press the Windows key, type Daytag, right-click it and choose Uninstall. Your notes, your board and your calendar stay as they are. '
+      + 'What Daytag saved stays too, in ' + esc(SETUP.home) + ', unless you delete it here first.</p><button class="btn" type="button" id="su-forget">Delete what Daytag saved</button>');
+    html += '<div class="setup-actions"><button class="btn primary" type="button" id="su-save">' + (SETUP.needed ? 'Save and open Daytag' : 'Save') + '</button><p class="tools-error" id="su-error" role="alert"></p><span class="note">Settings: ' + esc(SETUP.home)
+      + ' · <a href="' + PRIVACY + '" target="_blank" rel="noopener noreferrer">Privacy</a></span></div>' + creditsHtml();
     box.innerHTML = html;
     bindCalendar();
-    fetch('/api/phone').then((r) => r.json()).then((j) => { if (!j.error) { PHONE = j; paintPhone(); } }).catch(() => {});
+    const quit = $('#su-quit'), forget = $('#su-forget');
+    if (quit) quit.onclick = () => post('/api/quit').then(() => showEnded('Daytag has ended', '<p class="wz-lead">To open it again, press the Windows key, type Daytag and press Enter. A waiting update is there then.</p>')).catch((err) => toast(err.message));
+    if (forget) forget.onclick = () => {
+      if (!forget.dataset.sure) { forget.dataset.sure = '1'; forget.textContent = 'Really delete it? Click again'; return; }
+      forget.disabled = true;
+      post('/api/forget', { delete: true }).then((j) => {
+        // At this address the browser keeps nothing but what Daytag put there.
+        try { localStorage.clear(); } catch (e) { /* nothing to remove */ }
+        showEnded('Deleted', '<p class="wz-lead">What Daytag saved on this computer is gone, and Daytag has ended.</p>'
+          + ((j.left || []).length ? '<p class="tools-error">This could not be deleted, because another program holds it: ' + esc(j.left.join(', ')) + '. Delete the folder ' + esc(SETUP.home) + ' yourself.</p>' : '')
+          + '<p class="wz-lead">To remove the program too, press the Windows key, type Daytag, right-click it and choose Uninstall. Otherwise the next time you open it, the setup starts from the beginning.</p>'
+          + '<p class="note">If you signed in to GitHub, that sign-in stays in Windows. You can take it back under <a href="https://github.com/settings/applications" target="_blank" rel="noopener noreferrer">github.com/settings/applications</a>.</p>');
+      }).catch((err) => { forget.disabled = false; toast(err.message); });
+    };
+    if (!SETUP.store) fetch('/api/phone').then((r) => r.json()).then((j) => { if (!j.error) { PHONE = j; paintPhone(); } }).catch(() => {});
     const slack = (body, done) => post('/api/slack', body).then(() => { toast(done); renderSettings(); }).catch((err) => toast(err.message));
     const slGo = $('#sl-go'), slTest = $('#sl-test'), slOff = $('#sl-off');
     if (slGo) slGo.onclick = () => slack({ url: $('#sl-url').value }, 'Slack connected. A test message is in your channel.');
@@ -1652,11 +1693,11 @@
       const b = $('#su-probe');
       b.disabled = true;
       try {
-        const r = await fetch('/api/setup/board', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Leitstand': '1' },
+        const r = await fetch('/api/setup/board', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Daytag': '1' },
           body: JSON.stringify({ owner: $('#su-owner').value.trim(), ownerType: $('#su-kind').value, number: Number($('#su-num').value) || 0 }) });
         const j = await r.json();
         $('#su-fields').innerHTML = boardFields(r.ok ? j : { error: j.error });
-      } catch (err) { $('#su-fields').innerHTML = boardFields({ error: 'Brento is not answering.' }); } finally { b.disabled = false; }
+      } catch (err) { $('#su-fields').innerHTML = boardFields({ error: 'Daytag is not answering.' }); } finally { b.disabled = false; }
     };
     $('#su-save').onclick = async () => {
       const pick = ($('input[name="su-vault"]:checked') || {}).value || '';
@@ -1675,8 +1716,8 @@
       b.disabled = true;
       $('#su-error').textContent = '';
       try {
-        const r = await fetch('/api/setup', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Leitstand': '1' },
-          body: JSON.stringify({ profile: { name: $('#su-name').value.trim(), vault, sources: srcs, board, tasks: { home: $('#su-taskhome').value }, keepBrowsers: SETUP.shared ? $('#su-keep').checked : !!P.keepBrowsers,
+        const r = await fetch('/api/setup', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Daytag': '1' },
+          body: JSON.stringify({ profile: { name: $('#su-name').value.trim(), vault, sources: srcs, board, tasks: { home: $('#su-taskhome').value }, keepBrowsers: SETUP.shared ? $('#su-keep').checked : !!P.keepBrowsers, autostart: SETUP.store ? $('#su-auto').checked : !!P.autostart,
             slack: { digest: $('#sl-digest').value || '', remind: Number($('#sl-remind').value), alerts: $('#sl-alerts').checked, sources: $$('input[name="sl-src"]:checked').map((x) => x.value) } }, tools: chosen }) });
         const j = await r.json();
         if (!r.ok) throw new Error(j.error);
@@ -1692,7 +1733,7 @@
   }
 
   /* First start: a wizard, one question per screen. It guesses what it can, and where something has to happen
-     outside Brento (install, sign in), a button opens the official program and the page notices when it is done. */
+     outside Daytag (install, sign in), a button opens the official program and the page notices when it is done. */
   const WZ = { step: 0, data: null, name: '', vault: '', other: false, stats: null, board: null, boardBusy: '', calOk: false, calEvents: null,
     provider: 'google', slackOn: false, slack: null, tools: null, timer: 0, msg: '' };
   const WZ_STEPS = ['welcome', 'notes', 'board', 'calendar', 'slack', 'tools', 'done'];
@@ -1701,11 +1742,11 @@
     outlook: { name: 'Outlook', open: 'https://outlook.office.com/calendar/', steps: ['Open your Outlook calendar.', 'Open Settings, then "Shared calendars".', 'Under "Publish a calendar", pick your calendar and the detail level, then click "Publish".', 'Copy the ICS link and paste it below.'] },
     apple: { name: 'Apple iCloud', open: 'https://www.icloud.com/calendar/', steps: ['Open iCloud Calendar.', 'Point at your calendar on the left and click its info button.', 'Turn on "Public Calendar" and click "Copy". Anyone who has this link can read the calendar, so keep it to yourself.', 'Paste the link below.'] }
   };
-  const post = (url, body) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Leitstand': '1' }, body: JSON.stringify(body || {}) })
+  const post = (url, body) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Daytag': '1' }, body: JSON.stringify(body || {}) })
     .then(async (r) => { const j = await r.json(); if (!r.ok) throw new Error(j.error || 'HTTP ' + r.status); return j; });
   function renderWizard() {
     clearInterval(WZ.timer);
-    if (S && S.phone) { pageWrap(pageHead('Welcome', 'Brento is set up on your computer. Open it there to change anything.')); return; }
+    if (S && S.phone) { pageWrap(pageHead('Welcome', 'Daytag is set up on your computer. Open it there to change anything.')); return; }
     pageWrap('<div class="wz" id="wz"><section class="wz-card"><p class="wz-lead">Looking around this computer…</p></section></div>');
     fetch('/api/wizard').then(async (r) => { const j = await r.json(); if (!r.ok) throw new Error(j.error || 'HTTP ' + r.status); return j; }).then((d) => {
       // In the middle of the first setup nothing is saved yet, so what was typed and chosen stays.
@@ -1719,13 +1760,14 @@
         WZ.name = d.name || '';
         const open = d.vaults.find((v) => v.open) || d.vaults[0];
         WZ.vault = d.profile.vault || (d.needed && open ? open.path : '');
-        WZ.other = !!d.profile.vault && !d.vaults.some((v) => v.path === d.profile.vault);
+        WZ.other = !!d.profile.vault && d.profile.vault !== d.sample && !d.vaults.some((v) => v.path === d.profile.vault);
         const b = d.profile.board;
         WZ.board = b.owner && b.number ? Object.assign({ title: 'Board ' + b.number, lanesFound: true }, b) : null;
         WZ.tools = WZ.sources = null;
         WZ.msg = '';
         WZ.reached = 0;
         WZ.askOn = !d.needed && !!(d.profile.sources.ask || {}).on;
+        WZ.autostart = d.needed || !!d.profile.autostart;
         WZ.slack = Object.assign({ digest: '08:00', alerts: true, remind: 10 }, (T && T.slack) || {}, d.profile.slack && d.profile.slack.digest !== undefined && !d.needed ? d.profile.slack : {});
       }
       if (T && T.calendar) WZ.provider = T.calendar;
@@ -1748,10 +1790,10 @@
     if (!WZ.vault) return '';
     if (!WZ.stats) {
       return '<p class="wz-lead">Counting notes…</p>' + (WZ.data.platform === 'darwin' && /\/(Documents|Desktop|Downloads|Library\/(Mobile Documents|CloudStorage))(\/|$)/.test(WZ.vault)
-        ? '<p class="note">macOS may ask whether Brento may read this folder. Click Allow, or OK.</p>' : '');
+        ? '<p class="note">macOS may ask whether Daytag may read this folder. Click Allow, or OK.</p>' : '');
     }
-    return WZ.stats.error ? wzWarn(esc(WZ.stats.error)) : wzOk('Found ' + Number(WZ.stats.notes).toLocaleString('en-GB') + ' notes' + (WZ.stats.tasks === null ? '. Brento looks for tasks in them while you go on.' : ' and ' + Number(WZ.stats.tasks) + (WZ.stats.tasks === 1 ? ' task' : ' tasks') + ' with a date.'))
-      + (WZ.stats.missing ? '<p class="note">' + esc(WZ.stats.missing.charAt(0).toUpperCase() + WZ.stats.missing.slice(1)) + '. Brento tries again by itself.</p>' : '');
+    return WZ.stats.error ? wzWarn(esc(WZ.stats.error)) : wzOk('Found ' + Number(WZ.stats.notes).toLocaleString('en-GB') + ' notes' + (WZ.stats.tasks === null ? '. Daytag looks for tasks in them while you go on.' : ' and ' + Number(WZ.stats.tasks) + (WZ.stats.tasks === 1 ? ' task' : ' tasks') + ' with a date.'))
+      + (WZ.stats.missing ? '<p class="note">' + esc(WZ.stats.missing.charAt(0).toUpperCase() + WZ.stats.missing.slice(1)) + '. Daytag tries again by itself.</p>' : '');
   }
   function paintFound() { const box = $('#wz-found'); if (box) box.innerHTML = wzFound(); }
   // Windows puts quotes around a path that was copied.
@@ -1844,25 +1886,29 @@
   const wzChoice = (attrs, title, small, on) => '<button type="button" class="wz-choice' + (on ? ' on' : '') + '" ' + attrs + '><b>' + esc(title) + '</b>' + (small ? '<small>' + esc(small) + '</small>' : '') + '</button>';
   function wzNotes() {
     const d = WZ.data;
-    let html = '<h2>Your notes</h2><p class="wz-lead">Brento reads your Obsidian notes and the tasks in them that carry a date. It never changes a note.</p><div class="wz-choices">';
+    let html = '<h2>Your notes</h2><p class="wz-lead">Daytag reads your Obsidian notes and the tasks in them that carry a date. It never changes a note.</p><div class="wz-choices">';
     html += d.vaults.map((v) => wzChoice('data-vault="' + esc(v.path) + '"', v.name, v.path, !WZ.other && WZ.vault === v.path)).join('');
-    html += wzChoice('data-vault="__other"', 'Another folder', 'Show Brento where it is', WZ.other) + wzChoice('data-vault=""', 'I don\'t use Obsidian', 'Calendar and board only', !WZ.vault && !WZ.other) + '</div>';
+    html += wzChoice('data-vault="__other"', 'Another folder', 'Show Daytag where it is', WZ.other)
+      + wzChoice('data-vault="__sample"', 'Look around with sample notes', 'A few made-up notes, to see how Daytag looks', !WZ.other && !!WZ.vault && WZ.vault === d.sample)
+      + wzChoice('data-vault=""', 'I don\'t use Obsidian', 'Calendar and board only', !WZ.vault && !WZ.other) + '</div>';
     if (WZ.other) html += '<div class="setup-field"><label for="wz-path">Where the folder is</label><input id="wz-path" value="' + esc(WZ.vault) + '" spellcheck="false" placeholder="Paste it here"></div>'
       + (d.platform === 'win32' ? '<p class="note">In the Explorer, right-click the folder, choose <b>Copy as path</b> and paste it here. On Windows 10 hold Shift while you right-click.</p>'
         : d.platform === 'darwin' ? '<p class="note">In the Finder, hold <b>Control</b> and click the folder, then hold <b>Option</b> as well, choose <b>Copy … as Pathname</b> and paste it here.</p>' : '');
     html += '<div id="wz-found">' + wzFound() + '</div>';
     return html;
   }
-  // Said before the click: GitHub's own page asks for more than Brento uses, and in another program's name.
-  const WZ_GITHUB = '<p class="note">GitHub then asks you to authorize <b>GitHub CLI</b>. That is GitHub\'s own program, which Brento uses. It always asks for your repositories and gists, to read and to write, and to see your organizations. Brento adds your project boards. '
+  // Said before the click: GitHub's own page asks for more than Daytag uses, and in another program's name.
+  const WZ_GITHUB = '<p class="note">GitHub then asks you to authorize <b>GitHub CLI</b>. That is GitHub\'s own program, which Daytag uses. It always asks for your repositories and gists, to read and to write, and to see your organizations. Daytag adds your project boards. '
     + 'It reads your boards and your list of repositories, and writes only when you click for it: a new board, or the lanes on one. You can take it back any time under <a href="https://github.com/settings/applications" target="_blank" rel="noopener noreferrer">github.com/settings/applications</a>.</p>';
   function wzBoard() {
     const d = WZ.data, gh = d.gh;
-    let html = '<h2>Your to-do board</h2><p class="wz-lead">Brento reads a free GitHub Project board with three lanes: HIGH, MID and LOW. A HIGH card with a date reaches your home screen in time.</p>';
+    let html = '<h2>Your to-do board</h2><p class="wz-lead">Daytag reads a free GitHub Project board with three lanes: HIGH, MID and LOW. A HIGH card with a date reaches your home screen in time.</p>';
     const busy = WZ.msg && !(WZ.data.signin && (WZ.data.signin.code || WZ.data.signin.error)) ? '<p class="wz-wait">' + esc(WZ.msg) + '</p>' : '';
     const running = !!(WZ.data.signin && WZ.data.signin.running && WZ.data.signin.code);
     if (!gh.ready && /not installed/i.test(gh.reason)) {
-      html += '<p>First, the free GitHub program for this computer.</p>' + (d.canInstall ? '<button class="btn primary" type="button" data-open="gh-install">Install it for me</button>' : '<p class="note">Install it from <a href="https://cli.github.com/" target="_blank" rel="noopener noreferrer">cli.github.com</a>, then come back.</p>') + busy;
+      html += '<p>First, the free GitHub program for this computer.</p>' + (d.canInstall ? '<button class="btn primary" type="button" data-open="gh-install">Install it for me</button>'
+        : d.store ? '<p class="note">It came with Daytag and is missing now. Install Daytag again from the Microsoft Store.</p>'
+          : '<p class="note">Install it from <a href="https://cli.github.com/" target="_blank" rel="noopener noreferrer">cli.github.com</a>, then come back.</p>') + busy;
       return html;
     }
     if (!gh.ready && /not signed in/i.test(gh.reason)) {
@@ -1882,14 +1928,14 @@
       if (!WZ.board.lanesFound) html += wzWarn('This board has no lanes HIGH, MID and LOW yet.') + '<button class="btn primary" type="button" id="wz-lanes">Add the lanes for me</button> ';
       return html + '<button class="btn" type="button" id="wz-reboard">Choose another board</button>';
     }
-    html += '<div class="wz-choices">' + wzChoice('id="wz-create"', 'Create a new board for me', 'Called "Brento", with the lanes, an area and a due date', false)
+    html += '<div class="wz-choices">' + wzChoice('id="wz-create"', 'Create a new board for me', 'Called "Daytag", with the lanes, an area and a due date', false)
       + (d.orgs || []).map((o) => wzChoice('data-org="' + esc(o) + '"', 'Create a team board in ' + o, 'Shared by everyone in ' + o + '. Each person\'s Home shows their own cards.', false)).join('')
       + (d.projects || []).map((p) => wzChoice('data-board="' + Number(p.number) + '" data-owner="' + esc(p.owner) + '" data-kind="' + esc(p.ownerType) + '"', p.title, p.cards + (p.cards === 1 ? ' card' : ' cards'), false)).join('') + '</div>';
     return html + (d.projectsError ? wzWarn(esc(d.projectsError)) : '') + busy;
   }
   function wzCalendar() {
     const help = CAL_HELP[WZ.provider];
-    let html = '<h2>Your calendar</h2><p class="wz-lead">Brento reads your appointments through a link, read only. Meetings where people wait for you reach your home screen, with the join button. Repeating appointments are left out.</p>';
+    let html = '<h2>Your calendar</h2><p class="wz-lead">Daytag reads your appointments through a link, read only. Meetings where people wait for you reach your home screen, with the join button. Repeating appointments are left out.</p>';
     if (WZ.calOk) return html + wzOk(WZ.calEvents === null ? 'Calendar connected.' : 'Connected: ' + WZ.calEvents + (WZ.calEvents === 1 ? ' appointment' : ' appointments') + ' in the next three months.') + '<button class="btn" type="button" id="wz-calagain">Use another calendar</button>';
     html += '<div class="wz-tabs">' + Object.keys(CAL_HELP).map((k) => '<button type="button" class="wz-tab' + (k === WZ.provider ? ' on' : '') + '" data-provider="' + k + '">' + CAL_HELP[k].name + '</button>').join('') + '</div>';
     html += '<ol class="wz-steps">' + help.steps.map((s, i) => '<li>' + esc(s) + (i === 0 ? ' <a href="' + help.open + '" target="_blank" rel="noopener noreferrer">Open it</a>' : '') + '</li>').join('') + '</ol>';
@@ -1903,8 +1949,8 @@
         + '<div class="setup-field"><label for="wz-remind">Reminder before meetings</label><select id="wz-remind">' + [0, 5, 10, 15, 30].map((m) => '<option value="' + m + '"' + (Number(WZ.slack.remind) === m ? ' selected' : '') + '>' + (m ? m + ' minutes' : 'Off') + '</option>').join('') + '</select></div></div>'
         + '<label class="wz-check"><input type="checkbox" id="wz-alerts"' + (WZ.slack.alerts ? ' checked' : '') + '> Tell me when something new needs me</label>';
     }
-    html += '<ol class="wz-steps"><li>Click <a href="' + esc(WZ.data.slackCreate) + '" target="_blank" rel="noopener noreferrer"><b>Create the Brento app</b></a>. Slack opens with everything filled in.</li>'
-      + '<li>Pick your workspace, click Next, then Create.</li><li>On the left, click "Incoming Webhooks", then "Add New Webhook". Pick the channel for Brento\'s messages and click Allow.</li>'
+    html += '<ol class="wz-steps"><li>Click <a href="' + esc(WZ.data.slackCreate) + '" target="_blank" rel="noopener noreferrer"><b>Create the Daytag app</b></a>. Slack opens with everything filled in.</li>'
+      + '<li>Pick your workspace, click Next, then Create.</li><li>On the left, click "Incoming Webhooks", then "Add New Webhook". Pick the channel for Daytag\'s messages and click Allow.</li>'
       + '<li>Copy the webhook link and paste it here.</li></ol>';
     return html + '<div class="wz-paste"><input id="wz-slack" type="password" placeholder="https://hooks.slack.com/services/…" autocomplete="off" spellcheck="false"><button class="btn primary" type="button" id="wz-slackgo">Connect</button></div>' + (WZ.msg ? wzWarn(esc(WZ.msg)) : '');
   }
@@ -1913,7 +1959,7 @@
     if (!WZ.tools) {
       const cal = (WZ.provider || '');
       const pick = new Set(d.catalog.filter((t) => t.added).map((t) => t.id));
-      if (WZ.vault) pick.add('obsidian');
+      if (WZ.vault && WZ.vault !== d.sample) pick.add('obsidian');
       if (WZ.calOk && cal === 'google') { pick.add('gmail'); pick.add('google-calendar'); }
       if (WZ.calOk && cal === 'outlook') { pick.add('outlook'); pick.add('outlook-calendar'); pick.add('teams'); }
       if (WZ.slackOn) pick.add('slack');
@@ -1921,30 +1967,34 @@
       if (d.claude && d.claude.ready) pick.add('claude');
       WZ.tools = pick;
     }
-    return '<h2>Your apps</h2><p class="wz-lead">Pick the apps you use every day. They sit in Brento\'s dock and open in their own window.</p><p class="note">Their logos come from Google\'s icon service. An app you add yourself later gets a letter, so nobody learns its address.</p><div class="wz-apps">'
-      + d.catalog.map((t) => '<label class="wz-app' + (t.added ? ' done' : '') + '"><input type="checkbox" data-tool="' + esc(t.id) + '"' + (WZ.tools.has(t.id) ? ' checked' : '') + (t.added ? ' disabled' : '') + '><span>' + esc(t.name) + '</span></label>').join('') + '</div>';
+    return '<h2>Your apps</h2><p class="wz-lead">Pick the apps you use every day. They sit in Daytag\'s dock and open in their own window.</p><p class="note">Their logos come from Google\'s icon service. An app you add yourself later gets a letter, so nobody learns its address.</p><div class="wz-apps">'
+      + d.catalog.map((t) => '<label class="wz-app' + (t.added ? ' done' : '') + '"><input type="checkbox" data-tool="' + esc(t.id) + '"' + (WZ.tools.has(t.id) ? ' checked' : '') + (t.added ? ' disabled' : '') + '><span>' + esc(t.name) + '</span></label>').join('') + '</div>'
+      + (d.store && d.needed ? '<label class="wz-check"><input type="checkbox" id="wz-auto"' + (WZ.autostart ? ' checked' : '') + '> Start Daytag when I sign in to Windows</label>' : '');
   }
   function wzDone() {
     const d = WZ.data, c = d.claude || {};
     const rows = [];
-    rows.push(WZ.vault ? 'Notes from ' + esc(WZ.vault.split(/[\\/]/).pop()) : 'No notes');
+    rows.push(!WZ.vault ? 'No notes' : WZ.vault === d.sample ? 'Sample notes' : 'Notes from ' + esc(WZ.vault.split(/[\\/]/).pop()));
     rows.push(WZ.board ? 'Board: ' + esc(WZ.board.title) : 'No board');
     rows.push(WZ.calOk ? 'Calendar connected' : 'No calendar yet');
     rows.push(WZ.slackOn ? 'Slack connected' : 'No Slack');
-    let html = '<h2>Brento is ready</h2><ul class="wz-sum">' + rows.map((r) => '<li>' + r + '</li>').join('') + '</ul>';
+    let html = '<h2>Daytag is ready</h2><ul class="wz-sum">' + rows.map((r) => '<li>' + r + '</li>').join('') + '</ul>';
     if (WZ.vault) {
       html += '<div class="wz-extra"><b>Optional: the Ask box</b><p>Ask questions about your notes. Claude Code answers them on this computer, under your own Claude plan. What it reads for an answer goes to Claude.</p>'
         + (c.ready ? (WZ.askOn ? wzOk('The Ask box is on.') : '<button class="btn" type="button" id="wz-ask">Switch it on</button>')
-          : /not installed/i.test(c.reason || '') ? '<a class="btn" href="https://claude.com/claude-code" target="_blank" rel="noopener noreferrer">Get Claude Code</a>'
+          : /not installed/i.test(c.reason || '') ? (d.store ? '<p class="note">It needs Claude Code, which is not on this computer. Once it is, you can switch the Ask box on here.</p>'
+            : '<a class="btn" href="https://claude.com/claude-code" target="_blank" rel="noopener noreferrer">Get Claude Code</a>')
           : '<button class="btn" type="button" data-open="claude-login">Sign in to Claude and switch it on</button>') + (WZ.msg ? '<p class="wz-wait">' + esc(WZ.msg) + '</p>' : '') + '</div>';
     }
-    if (WZ.board && WZ.board.ownerType === 'org' && !(d.team && d.team.board.owner)) {
-      html += '<div class="wz-extra"><b>Set up your team in one go</b><p>Save this board, these apps and the Slack timing as team.json in the Brento folder. Commit and push it, and everyone who installs from your copy of the repo gets the same setup without choosing.</p>'
+    // A team's copy has installers of its own. The Store's package is the same for everyone, so it carries no team file.
+    if (WZ.board && WZ.board.ownerType === 'org' && !(d.team && d.team.board.owner) && !d.store) {
+      html += '<div class="wz-extra"><b>Set up your team in one go</b><p>Save this board, these apps and the Slack timing as team.json in the Daytag folder. Commit and push it, and everyone who installs from your copy of the repo gets the same setup without choosing.</p>'
         + (WZ.teamSaved ? wzOk('Saved as team.json. Commit and push it to share.') : '<button class="btn" type="button" id="wz-team">Save as team setup</button>') + '</div>';
     }
-    if (d.platform === 'darwin') html += '<div class="wz-extra"><b>Brento on your Mac</b><p>Brento starts when you log in. To open it later, press Cmd and Space, type Brento and press Return.</p></div>';
-    if (d.platform === 'win32') html += '<div class="wz-extra"><b>Brento on your computer</b><p>To open Brento later, press the Windows key, type Brento and press Enter. Right-click the icon to pin it to the taskbar.</p></div>';
-    html += '<div class="wz-extra"><b>Brento on your phone</b><p>iPhone or Android: Brain, then "Sources and setup", then Phone. It takes a six-digit code, nothing to install.</p></div>';
+    if (d.platform === 'darwin') html += '<div class="wz-extra"><b>Daytag on your Mac</b><p>Daytag starts when you log in. To open it later, press Cmd and Space, type Daytag and press Return.</p></div>';
+    if (d.platform === 'win32') html += '<div class="wz-extra"><b>Daytag on your computer</b><p>To open Daytag later, press the Windows key, type Daytag and press Enter. Right-click the icon to pin it to the taskbar.</p>'
+      + (d.store ? '<p>' + (WZ.autostart ? 'Daytag starts when you sign in to Windows.' : 'Daytag does not start by itself.') + ' You change that under "Sources and setup", 9.</p>' : '') + (d.twice ? '<p>' + TWICE + '</p>' : '') + '</div>';
+    if (!d.store) html += '<div class="wz-extra"><b>Daytag on your phone</b><p>iPhone or Android: Brain, then "Sources and setup", then Phone. It takes a six-digit code, nothing to install.</p></div>';
     return html + '<p class="note">Change anything later: Brain, then "Sources and setup".</p>';
   }
   function wzBoardProfile() {
@@ -1964,6 +2014,7 @@
     WZ.sources = sources;
     const profile = { name: WZ.name, vault: WZ.vault, sources, tasks: WZ.data.profile.tasks, slack: WZ.slack };
     if (WZ.board) profile.board = wzBoardProfile();
+    if (WZ.data.store) profile.autostart = WZ.autostart;
     return post('/api/setup', { profile, tools: Array.from(WZ.tools || []) });
   }
   // Someone who has finished the setup came for one page. Only that is saved, everything else stays as they left it.
@@ -1986,8 +2037,8 @@
     const dots = name === 'done' || one ? '' : '<div class="wz-dots" aria-label="Step ' + (WZ.step + 1) + ' of 6">' + WZ_STEPS.slice(0, 6).map((s, i) => '<i class="' + (i < WZ.step ? 'done' : i === WZ.step ? 'on' : '') + '"></i>').join('') + '</div>';
     let body = '', next = 'Next', skip = false;
     if (name === 'welcome') {
-      body = '<h2>Welcome to ' + (WZ.data.team && WZ.data.team.team ? esc(WZ.data.team.team) + '\'s Brento' : 'Brento') + '</h2><p class="wz-lead">One screen that tells you what needs you today: your tasks, your board and your meetings. Setup takes about two minutes. Brento runs on this computer and keeps its settings here.</p>'
-        + '<div class="setup-field"><label for="wz-name">What should Brento call you?</label><input id="wz-name" maxlength="40" value="' + esc(WZ.name) + '" autocomplete="given-name"></div>';
+      body = '<h2>Welcome to ' + (WZ.data.team && WZ.data.team.team ? esc(WZ.data.team.team) + '\'s Daytag' : 'Daytag') + '</h2><p class="wz-lead">One screen that tells you what needs you today: your tasks, your board and your meetings. Setup takes about two minutes. Daytag runs on this computer and keeps its settings here.</p>'
+        + '<div class="setup-field"><label for="wz-name">What should Daytag call you?</label><input id="wz-name" maxlength="40" value="' + esc(WZ.name) + '" autocomplete="given-name"></div>';
       next = 'Let\'s go';
     } else if (name === 'notes') body = wzNotes();
     else if (name === 'board') { body = wzBoard(); skip = !WZ.board; }
@@ -1996,7 +2047,7 @@
     else if (name === 'tools') { body = wzTools(); next = 'Finish'; }
     else body = wzDone();
     const error = '<p class="tools-error" id="wz-error" role="alert"></p>';
-    const nav = one ? '<div class="wz-nav">' + error + '<button class="btn" type="button" id="wz-close">Cancel</button><button class="btn primary" type="button" id="wz-one">Done</button></div>' : name === 'done' ? '<div class="wz-nav"><span></span><button class="btn primary" type="button" id="wz-home">Open Brento</button></div>'
+    const nav = one ? '<div class="wz-nav">' + error + '<button class="btn" type="button" id="wz-close">Cancel</button><button class="btn primary" type="button" id="wz-one">Done</button></div>' : name === 'done' ? '<div class="wz-nav"><span></span><button class="btn primary" type="button" id="wz-home">Open Daytag</button></div>'
       : '<div class="wz-nav">' + error + (WZ.step ? '<button class="btn" type="button" id="wz-back">Back</button>' : '<span></span>') + '<span class="wz-right">'
         + (skip ? '<button class="link-btn" type="button" id="wz-skip">Skip for now</button>' : '') + '<button class="btn primary" type="button" id="wz-next">' + next + '</button></span></div>';
     box.innerHTML = '<section class="wz-card">' + dots + body + nav + '</section>';
@@ -2030,14 +2081,23 @@
     on('#wz-code-go', () => { if (navigator.clipboard) navigator.clipboard.writeText($('#wz-code').textContent).then(() => toast('Code copied. Paste it on the GitHub page.')).catch(() => {}); });
     if (name === 'welcome') { const n = $('#wz-name'); n.oninput = () => { WZ.name = n.value.trim(); }; n.focus(); }
     if (name === 'notes') {
-      $$('#wz [data-vault]').forEach((b) => { b.onclick = () => { const v = b.dataset.vault; WZ.other = v === '__other'; WZ.vault = WZ.other ? '' : v; if (WZ.vault) vaultStats(); paintWizard(); }; });
+      $$('#wz [data-vault]').forEach((b) => {
+        b.onclick = () => {
+          const v = b.dataset.vault;
+          if (v === '__sample') {
+            post('/api/wizard/sample').then((j) => { WZ.other = false; WZ.vault = j.path; if (WZ.tools) WZ.tools.delete('obsidian'); vaultStats(); paintWizard(); }).catch((err) => toast(err.message));
+            return;
+          }
+          WZ.other = v === '__other'; WZ.vault = WZ.other ? '' : v; if (WZ.vault) vaultStats(); paintWizard();
+        };
+      });
       const p = $('#wz-path');
       if (p) { p.onchange = () => { WZ.vault = typedPath(p); if (WZ.vault) vaultStats(); else paintFound(); }; }
     }
     if (name === 'board') {
       const pickBoard = wzPickBoard;
-      $$('#wz [data-org]').forEach((b) => { b.onclick = () => pickBoard({ action: 'create', title: 'Brento', org: b.dataset.org }, 'Creating the team board in ' + b.dataset.org + '…'); });
-      on('#wz-create', () => pickBoard({ action: 'create', title: 'Brento' }, 'Creating your board on GitHub…'));
+      $$('#wz [data-org]').forEach((b) => { b.onclick = () => pickBoard({ action: 'create', title: 'Daytag', org: b.dataset.org }, 'Creating the team board in ' + b.dataset.org + '…'); });
+      on('#wz-create', () => pickBoard({ action: 'create', title: 'Daytag' }, 'Creating your board on GitHub…'));
       $$('#wz [data-board]').forEach((b) => { b.onclick = () => pickBoard({ action: 'pick', owner: b.dataset.owner, ownerType: b.dataset.kind, number: Number(b.dataset.board) }, 'Reading the board…'); });
       on('#wz-lanes', () => pickBoard({ action: 'lanes', owner: WZ.board.owner, ownerType: WZ.board.ownerType, number: WZ.board.number }, 'Adding the lanes…'));
       on('#wz-reboard', () => { WZ.board = null; paintWizard(); });
@@ -2059,6 +2119,8 @@
       const keep = () => { const t = $('#wz-digest'), r = $('#wz-remind'), a = $('#wz-alerts'); if (t) WZ.slack = { digest: t.value || '', remind: Number(r.value), alerts: a.checked, sources: WZ.slack.sources }; };
       $$('#wz-digest, #wz-remind, #wz-alerts').forEach((el) => { el.onchange = keep; });
     }
+    const auto = $('#wz-auto');
+    if (auto) auto.onchange = () => { WZ.autostart = auto.checked; };
     if (name === 'tools') $$('#wz [data-tool]').forEach((c) => { c.onchange = () => { if (c.checked) WZ.tools.add(c.dataset.tool); else WZ.tools.delete(c.dataset.tool); }; });
     on('#wz-next', async () => {
       if (name === 'notes' && WZ.other) {
@@ -2101,6 +2163,7 @@
     $('#view').setAttribute('aria-label', (ROUTES[routeIndex(route)] || { label: route === 'day' ? 'Day' : '' }).label);
   }
   function render() {
+    if (over) return;
     if (S) stripWeek = route === 'day' ? clamp(Math.floor(daysBetween(S.today, openDay()) / 7), 0, lastWeek()) : 0;
     renderTop();
     renderStrip();
@@ -2109,26 +2172,30 @@
   }
 
   /* A slide that pops up over whatever page is open, once a day per item. Home needs no pop-up: it is already there. */
-  function ackGet() { try { return JSON.parse(store.get('leitstand:ack') || '{}'); } catch (e) { return {}; } }
-  function ack(id) { const a = ackGet(); a[id] = S.today; store.set('leitstand:ack', JSON.stringify(a)); }
+  // Today's only, and not in words: what stands there says which meetings and tasks there are.
+  const ackKey = (id) => hashOf(id).toString(36);
+  function ackGet() {
+    try { const a = JSON.parse(store.get('daytag:ack') || '{}'); Object.keys(a).forEach((k) => { if (a[k] !== S.today || k.length > 8) delete a[k]; }); return a; } catch (e) { return {}; }
+  }
+  function ack(id) { const a = ackGet(); a[ackKey(id)] = S.today; store.set('daytag:ack', JSON.stringify(a)); }
   function closeAlert() { $('#alert-pop').hidden = true; }
   function popAlert() {
     const box = $('#alert-pop');
     if (route === 'home') { S.alerts.forEach((a) => ack(a.id)); closeAlert(); return; }
     if (!box.hidden || ['ask', 'setup', 'settings'].includes(route) || !$('#palette').hidden || !$('#tools').hidden) return;
     const seen = ackGet();
-    const a = S.alerts.find((x) => seen[x.id] !== S.today);
+    const a = S.alerts.find((x) => seen[ackKey(x.id)] !== S.today);
     if (!a) return;
     const target = cardTarget(a), tool = relatedTool(a);
     box.innerHTML = '<div class="alert-box" role="alertdialog" aria-modal="true" aria-label="Needs preparing" style="--c:' + Art.tone(a) + '"><div class="alert-art"></div><div class="alert-copy"><div class="eyebrow"><span class="tag">' + esc(a.eyebrow) + '</span>' + (a.tag ? '<span class="tag ghost">' + esc(a.tag) + '</span>' : '') + '</div><h2>' + esc(a.title) + '</h2>' + (a.body ? '<p>' + esc(a.body) + '</p>' : '') + '<p class="alert-why">' + esc(a.why) + '</p>'
       + '<div class="alert-actions">' + (a.join ? '<a class="btn primary" href="' + esc(a.join) + '" target="_blank" rel="noopener noreferrer" id="alert-join">Join call</a>' : '')
       + (tool ? '<button class="btn' + (a.join ? '' : ' primary') + '" type="button" id="alert-tool">Open ' + esc(tool.name) + '</button>' : '') + (target ? '<a class="btn' + (tool || a.join ? '' : ' primary') + '" href="' + esc(target) + '" id="alert-open">Open note</a>' : '')
-      + '<button class="btn" type="button" id="alert-step">Smallest first step</button><button class="btn" type="button" id="alert-later">Later</button></div></div></div>';
+      + (S.pagesOff.includes('ask') ? '' : '<button class="btn" type="button" id="alert-step">Smallest first step</button>') + '<button class="btn" type="button" id="alert-later">Later</button></div></div></div>';
     $('.alert-art', box).prepend(cardPicture(a, 900, 300));
     box.hidden = false;
     const done = () => { ack(a.id); closeAlert(); setTimeout(popAlert, 300); };
     $('#alert-later').onclick = done;
-    $('#alert-step').onclick = () => { ask.draft = 'Give me the smallest first step, five minutes at most, to prepare for: ' + a.title + '. ' + (a.body || ''); done(); navigate('ask'); };
+    if ($('#alert-step')) $('#alert-step').onclick = () => { ask.draft = 'Give me the smallest first step, five minutes at most, to prepare for: ' + a.title + '. ' + (a.body || ''); done(); navigate('ask'); };
     if (tool) $('#alert-tool').onclick = (e) => { openTool(tool, e); done(); };
     if (target) $('#alert-open').onclick = done;
     if (a.join) $('#alert-join').onclick = done;
@@ -2140,6 +2207,10 @@
     const t = toolById(b.dataset.openTool);
     if (t) openTool(t, e);
   });
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('[data-other]')) return;
+    post('/api/remove-other').then(() => toast('Its window asks you now. If you do not see it, look at the taskbar.')).catch((err) => toast(err.message));
+  });
   // On Home a Home link changes nothing in the URL, so no route fires. It goes back to the first card instead.
   document.addEventListener('click', (e) => {
     if (route === 'home' && deckApi && e.target.closest('a[href="#home"]')) deckApi.first();
@@ -2149,6 +2220,7 @@
     else render();
   }
   function onRoute() {
+    if (over) return;
     const next = parseHash();
     if (next.route === route && next.id === routeId && S && $('#view').children.length) return;
     const delta = (routeIndex(next.route) - routeIndex(route)) || (next.id ? 1 : -1);
@@ -2165,18 +2237,27 @@
   function showLocked() {
     LET_IN = true;
     document.documentElement.classList.add('locked');
-    document.title = 'Brento';
+    document.title = 'Daytag';
     const win = /Windows/.test(navigator.userAgent), mac = /Mac OS/.test(navigator.userAgent);
-    $('#view').innerHTML = '<div class="page"><div class="wz"><section class="wz-card"><h2>Open Brento with its icon</h2>'
-      + '<p class="wz-lead">Brento opens only for the person it belongs to, and this window has not been let in.</p>'
-      + '<p class="wz-lead">' + (win ? 'Press the <b>Windows key</b>, type <b>Brento</b> and press <b>Enter</b>. Brento then opens in a window of its own.'
-        : mac ? 'Press <b>Cmd</b> and <b>Space</b>, type <b>Brento</b> and press <b>Return</b>. Brento then opens in your browser.'
-        : 'Open Brento from your programs, or type <b>brento</b> in a terminal. It then opens in your browser.') + '</p></section></div></div>';
+    $('#view').innerHTML = '<div class="page"><div class="wz"><section class="wz-card"><h2>Open Daytag with its icon</h2>'
+      + '<p class="wz-lead">Daytag opens only for the person it belongs to, and this window has not been let in.</p>'
+      + '<p class="wz-lead">' + (win ? 'Press the <b>Windows key</b>, type <b>Daytag</b> and press <b>Enter</b>. Daytag then opens in a window of its own.'
+        : mac ? 'Press <b>Cmd</b> and <b>Space</b>, type <b>Daytag</b> and press <b>Return</b>. Daytag then opens in your browser.'
+        : 'Open Daytag from your programs, or type <b>daytag</b> in a terminal. It then opens in your browser.') + '</p></section></div></div>';
+  }
+
+  // Daytag has ended because its owner said so. Nothing is asked any more, and no page comes back.
+  function showEnded(title, html) {
+    over = true;
+    clearTimeout(lookAgain);
+    document.documentElement.classList.add('locked');
+    document.title = 'Daytag';
+    $('#view').innerHTML = '<div class="page"><div class="wz"><section class="wz-card"><h2>' + title + '</h2>' + html + '</section></div></div>';
   }
 
   /* Data */
-  let webVersion = null, lookAgain = 0, looked = 0, lastRead = '';
-  // Stands above the page for as long as Brento does not answer, because what is below is from before.
+  let webVersion = null, lookAgain = 0, looked = 0, lastRead = '', over = false;
+  // Stands above the page for as long as Daytag does not answer, because what is below is from before.
   function standing(text) {
     let el = $('#standing');
     if (!text) { if (el) el.remove(); return; }
@@ -2184,6 +2265,7 @@
     if (el.textContent !== text) el.textContent = text;
   }
   async function load() {
+    if (over) return;
     try {
       const res = await fetch('/api/state');
       if (res.status === 401) {
@@ -2220,11 +2302,11 @@
       if (!['ask', 'library', 'setup', 'settings'].includes(route)) refreshInPlace();
       popAlert();
     } catch (err) {
-      if (S) standing(/Something else/.test(err.message) ? err.message : 'Brento is not answering. What you see here is from ' + lastRead + '.');
+      if (S) standing(/Something else/.test(err.message) ? err.message : 'Daytag is not answering. What you see here is from ' + lastRead + '.');
       // Back soon after it is back.
       clearTimeout(lookAgain);
       lookAgain = setTimeout(load, 5000);
-      if (!S) $('#view').innerHTML = '<div class="offline"><b>Brento is not answering.</b><br>On the computer, open it with its icon: press the Windows key, or Cmd and Space on a Mac, type Brento and press Enter. On a phone: is the computer on, and in the same Wi-Fi?</div>';
+      if (!S) $('#view').innerHTML = '<div class="offline"><b>Daytag is not answering.</b><br>On the computer, open it with its icon: press the Windows key, or Cmd and Space on a Mac, type Daytag and press Enter. On a phone: is the computer on, and in the same Wi-Fi?</div>';
     }
   }
 
@@ -2235,14 +2317,14 @@
     b.classList.add('busy');
     b.setAttribute('aria-busy', 'true');
     try {
-      const res = await fetch('/api/refresh', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Leitstand': '1' }, body: '{}' });
+      const res = await fetch('/api/refresh', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Daytag': '1' }, body: '{}' });
       const j = await res.json();
       if (!res.ok) throw new Error(j.error);
       const before = stateText;
       await load();
       toast(j.problems.length ? 'Not everything could be read. ' + j.problems.join(' ') : stateText === before ? 'Up to date. Nothing changed.' : 'Updated.');
     } catch (err) {
-      toast('Could not refresh. Brento is not answering.');
+      toast('Could not refresh. Daytag is not answering.');
     } finally {
       b.classList.remove('busy');
       b.removeAttribute('aria-busy');
@@ -2253,7 +2335,7 @@
   $('#refresh').onclick = refreshNow;
   $('#open-palette').innerHTML = icon('search');
   $('#open-palette').onclick = openPalette;
-  // Brento runs as the app installed in Chrome (owner, 08.11.2026 evening: back from the desktop window, "it's just a
+  // Daytag runs as the app installed in Chrome (owner, 08.11.2026 evening: back from the desktop window, "it's just a
   // mess"). It is installed already, so the browser's own install offer stays quiet.
   window.addEventListener('beforeinstallprompt', (e) => e.preventDefault());
 

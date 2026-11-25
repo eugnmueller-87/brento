@@ -1,5 +1,7 @@
 # A pushed tag like v0.2.0 becomes a release: unit tests, both installers built, each of them installed, opened, walked
 # through, updated and removed on real Macs and on Windows, and only when all of that worked, published.
+# The package for the Microsoft Store is built and tried the same way. It is kept with the run (store-package), because
+# only Microsoft can sign and publish it: docs/STORE.md.
 # "Run workflow" by hand, or a push to a branch called try/something, does everything except the publishing.
 name: release
 on:
@@ -7,6 +9,11 @@ on:
     tags: ["v*"]
     branches: ["try/**"]
   workflow_dispatch:
+    inputs:
+      identity:
+        description: For the Store package, the three names from Partner Center as JSON (docs/STORE.md). Empty is fine.
+        required: false
+        type: string
 permissions:
   contents: read
 jobs:
@@ -24,7 +31,7 @@ jobs:
           awk -v head="## $v " 'index($0, head) == 1 {on = 1; next} /^## / {if (on) exit} on' CHANGELOG.md > changes.md
           test -s changes.md || { echo "CHANGELOG.md has no section for $v"; exit 1; }
           {
-            echo "**Mac:** download **Brento-Mac.pkg** and open it. **Windows:** download **Brento-Windows.exe** and open it."
+            echo "**Mac:** download **Daytag-Mac.pkg** and open it. **Windows:** download **Daytag-Windows.exe** and open it."
             echo
             echo "The first time, your computer asks whether you trust the file. [These are the clicks](https://github.com/$GITHUB_REPOSITORY#install)."
             echo "You do not need the two source code files."
@@ -59,7 +66,7 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: |
           for f in web/app.js web/art.js web/sign.js; do node --check "$f" || exit 1; done
-          for f in install.sh "Install Brento.command" packaging/mac/postinstall; do sh -n "$f" || exit 1; done
+          for f in install.sh "Install Daytag.command" packaging/mac/postinstall; do sh -n "$f" || exit 1; done
 
   build-mac:
     needs: [notes, test]
@@ -74,7 +81,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: mac
-          path: dist/Brento-Mac.pkg
+          path: dist/Daytag-Mac.pkg
           compression-level: 0
 
   build-windows:
@@ -98,8 +105,53 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: windows
-          path: dist/Brento-Windows.exe
+          path: dist/Daytag-Windows.exe
           compression-level: 0
+
+  build-store:
+    needs: [notes, test]
+    runs-on: windows-2025
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: The package for the Store, when its three names were given
+        env:
+          IDENTITY: ${{ inputs.identity }}
+        run: |
+          if ($env:IDENTITY) {
+            [IO.File]::WriteAllText("$pwd\packaging\store\identity.json", $env:IDENTITY)
+            python packaging/store.py
+          } else { 'no names were given, so only the test packages are built' }
+      - name: Two versions of a test package, signed with a throwaway certificate as the Store signs the real one
+        run: |
+          $v = [version](Get-Content VERSION -Raw).Trim()
+          python packaging/store.py --test --probe --out dist/older.msix
+          python packaging/store.py --test --probe --out dist/newer.msix --version "$($v.Major).$($v.Minor).$($v.Build + 1)"
+          $cert = New-SelfSignedCertificate -Type Custom -Subject "CN=Daytag Test" -KeyUsage DigitalSignature -FriendlyName test -CertStoreLocation Cert:\CurrentUser\My -TextExtension @("2.5.29.37={text}1.3.6.1.5.5.7.3.3", "2.5.29.19={text}")
+          Export-Certificate -Cert $cert -FilePath dist\test.cer | Out-Null
+          $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\10.*\x64\signtool.exe" | Sort-Object FullName | Select-Object -Last 1
+          foreach ($f in 'older', 'newer') { & $signtool.FullName sign /q /fd SHA256 /sha1 $cert.Thumbprint "dist\$f.msix"; if ($LASTEXITCODE) { throw 'signing failed' } }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: store
+          path: |
+            dist/older.msix
+            dist/newer.msix
+            dist/test.cer
+          compression-level: 0
+          retention-days: 5
+      - uses: actions/upload-artifact@v4
+        with:
+          name: store-package
+          path: dist/Daytag-Store.msix
+          compression-level: 0
+          if-no-files-found: ignore
 
   try-mac:
     needs: build-mac
@@ -118,7 +170,7 @@ jobs:
       - name: Install, as the person at the screen
         run: |
           uname -m; sw_vers -productVersion
-          installer -pkg Brento-Mac.pkg -target CurrentUserHomeDirectory -verboseR
+          installer -pkg Daytag-Mac.pkg -target CurrentUserHomeDirectory -verboseR
           python3 packaging/check_install.py up
       - name: The browser it opened was let in
         run: |
@@ -141,29 +193,29 @@ jobs:
           "$RUNNER_TEMP/walk/bin/python" packaging/walk_setup.py safari,chrome pictures
       - name: Update by installing again
         run: |
-          installer -pkg Brento-Mac.pkg -target CurrentUserHomeDirectory -verboseR
+          installer -pkg Daytag-Mac.pkg -target CurrentUserHomeDirectory -verboseR
           python3 packaging/check_install.py kept
-      - name: A crash does not end Brento
+      - name: A crash does not end Daytag
         run: |
-          pkill -9 -f "Application Support/Brento/app/server.py"
+          pkill -9 -f "Application Support/Daytag/app/server.py"
           sleep 35
           python3 packaging/check_install.py kept
       - name: Remove it the way the Uninstall app does
         run: |
-          /bin/sh "$HOME/Library/Application Support/Brento/app/install.sh" --remove
+          /bin/sh "$HOME/Library/Application Support/Daytag/app/install.sh" --remove
           python3 packaging/check_install.py down
       - name: A picture of the installer
         if: always()
         continue-on-error: true
         run: |
-          open Brento-Mac.pkg
+          open Daytag-Mac.pkg
           sleep 12
           screencapture -x 2-installer-${{ matrix.os }}.png
       - name: What went wrong, if something did
         if: failure()
         run: |
           grep -v ' Env: ' /var/log/install.log | tail -n 60 || true
-          cat "$HOME/.brento/server.log" || true
+          cat "$HOME/.daytag/server.log" || true
       - uses: actions/upload-artifact@v4
         if: always()
         continue-on-error: true
@@ -194,11 +246,11 @@ jobs:
         with:
           name: windows
       - name: How the installer is run here
-        # Not Start-Process -Wait: that also waits for the Brento the installer starts, which runs until sign-out.
+        # Not Start-Process -Wait: that also waits for the Daytag the installer starts, which runs until sign-out.
         run: |
           @'
           param($Log)
-          $p = Start-Process .\Brento-Windows.exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/LOG=$pwd\$Log" -PassThru
+          $p = Start-Process .\Daytag-Windows.exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/LOG=$pwd\$Log" -PassThru
           $null = $p.Handle
           if (-not $p.WaitForExit(240000)) { Get-Content $Log -Tail 60; throw "the installer still ran after four minutes" }
           if ($p.ExitCode -ne 0) { Get-Content $Log -Tail 60; throw "the installer ended with $($p.ExitCode)" }
@@ -218,7 +270,7 @@ jobs:
       - name: The browser it opened was let in
         run: |
           foreach ($i in 1..30) {
-            $shown = (Get-Process | Where-Object { $_.MainWindowTitle -match 'Brento' } | ForEach-Object { "$($_.ProcessName): $($_.MainWindowTitle)" }) -join ' | '
+            $shown = (Get-Process | Where-Object { $_.MainWindowTitle -match 'Daytag' } | ForEach-Object { "$($_.ProcessName): $($_.MainWindowTitle)" }) -join ' | '
             if ($shown -match 'Welcome') { break }
             Start-Sleep -Seconds 2
           }
@@ -240,20 +292,20 @@ jobs:
       - name: Remove it
         timeout-minutes: 4
         run: |
-          Start-Process "$env:LOCALAPPDATA\Programs\Brento\unins000.exe" -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait
+          Start-Process "$env:LOCALAPPDATA\Programs\Daytag\unins000.exe" -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait
           python packaging/check_install.py down
       - name: A picture of the installer
         if: always()
         continue-on-error: true
         run: |
-          Start-Process .\Brento-Windows.exe
+          Start-Process .\Daytag-Windows.exe
           Start-Sleep -Seconds 10
           .\picture.ps1 2-installer-${{ matrix.os }}
-          Get-Process Brento-Windows* | Stop-Process -Force
+          Get-Process Daytag-Windows* | Stop-Process -Force
       - name: What went wrong, if something did
         if: failure()
         run: |
-          Get-Content "$HOME\.brento\server.log" -Tail 40 -ErrorAction SilentlyContinue
+          Get-Content "$HOME\.daytag\server.log" -Tail 40 -ErrorAction SilentlyContinue
           Get-Content install.log, update.log -Tail 40 -ErrorAction SilentlyContinue
       - uses: actions/upload-artifact@v4
         if: always()
@@ -265,10 +317,154 @@ jobs:
             pictures/*.png
           if-no-files-found: ignore
 
+  try-store:
+    needs: [build-store, build-windows]
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2025, windows-11-arm]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: actions/download-artifact@v4
+        with:
+          name: store
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows
+      - name: How packages are put in here
+        run: |
+          python -m pip -q install selenium==4.51.0
+          # A larger screen, for the pictures of the listing. Windows 11 on Arm has no such command.
+          try { Set-DisplayResolution -Width 1920 -Height 1080 -Force -ErrorAction Stop } catch { "screen: $($_.Exception.Message)" }
+          # An update in a process of its own with a limit, because one call that waits for ever would take the run along.
+          @'
+          $p = Start-Process powershell -ArgumentList '-NoProfile','-Command',"try { Add-AppxPackage '$pwd\newer.msix' -DeferRegistrationWhenPackagesAreInUse -ErrorAction Stop; 'accepted' } catch { `$_.Exception.Message.Trim().Split([char]10)[0] }" -RedirectStandardOutput said.txt -PassThru -WindowStyle Hidden
+          $null = $p.Handle
+          if (-not $p.WaitForExit(90000)) { $p.Kill(); throw 'no answer after 90 seconds' }
+          $said = "$(Get-Content said.txt)".Trim()
+          if ($said -ne 'accepted') { throw $said }
+          '@ | Set-Content update.ps1
+          @'
+          param($Name)
+          Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+          $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+          $i = New-Object System.Drawing.Bitmap $b.Width, $b.Height
+          [System.Drawing.Graphics]::FromImage($i).CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size)
+          $i.Save("$pwd\$Name.png")
+          '@ | Set-Content picture.ps1
+      - name: Install, and open it from the Start menu
+        timeout-minutes: 5
+        run: |
+          Import-Certificate -FilePath test.cer -CertStoreLocation Cert:\LocalMachine\TrustedPeople | Out-Null
+          Add-AppxPackage .\older.msix
+          $p = Get-AppxPackage DaytagTest.Daytag
+          "FAMILY=$($p.PackageFamilyName)" >> $env:GITHUB_ENV
+          "FOLDER=$($p.InstallLocation)" >> $env:GITHUB_ENV
+          Start-Process "shell:AppsFolder\$($p.PackageFamilyName)!Daytag"
+          python packaging/try_store.py up $p.InstallLocation
+      - name: The window it opened was let in
+        timeout-minutes: 3
+        run: |
+          foreach ($i in 1..30) {
+            $shown = (Get-Process | Where-Object { $_.MainWindowTitle -match 'Daytag' } | ForEach-Object { "$($_.ProcessName): $($_.MainWindowTitle)" }) -join ' | '
+            if ($shown -match 'Welcome') { break }
+            Start-Sleep -Seconds 2
+          }
+          "windows: $shown"
+          if ($shown -notmatch 'Welcome') { throw 'no window shows the setup' }
+      - name: A picture of what the person sees then
+        if: always()
+        continue-on-error: true
+        run: .\picture.ps1 1-store-${{ matrix.os }}
+      - name: The whole setup in a browser, and the sample notes
+        timeout-minutes: 7
+        run: |
+          python packaging/walk_setup.py edge,chrome pictures
+          if ($LASTEXITCODE) { exit 1 }
+          python packaging/try_store.py samples
+      - name: Pictures for the listing
+        if: matrix.os == 'windows-2025'
+        continue-on-error: true
+        timeout-minutes: 4
+        run: |
+          Get-Process msedge, chrome -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+          python packaging/store/shots.py shots
+      - name: What a package may do
+        timeout-minutes: 5
+        run: |
+          Start-Process "shell:AppsFolder\$env:FAMILY!Probe"
+          python packaging/try_store.py probe
+      - name: An update waits while it runs, and is there after the next start
+        timeout-minutes: 6
+        run: |
+          Get-Process msedge, chrome -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+          .\update.ps1
+          python packaging/try_store.py kept $env:FOLDER
+          if ($LASTEXITCODE) { exit 1 }
+          python packaging/try_store.py quit
+          if ($LASTEXITCODE) { exit 1 }
+          Start-Process "shell:AppsFolder\$env:FAMILY!Daytag"
+          Start-Sleep -Seconds 20
+          $p = Get-AppxPackage DaytagTest.Daytag
+          "$($p.Version)"
+          if ($p.InstallLocation -eq $env:FOLDER) { throw 'the update did not come with the next start' }
+          python packaging/try_store.py kept $p.InstallLocation
+          if ($LASTEXITCODE) { exit 1 }
+      - name: Remove it while it runs
+        timeout-minutes: 4
+        run: |
+          Get-AppxPackage DaytagTest.Daytag | Remove-AppxPackage
+          python packaging/try_store.py gone
+      - name: Beside the Daytag from GitHub, the one that is opened takes over
+        timeout-minutes: 8
+        run: |
+          $p = Start-Process .\Daytag-Windows.exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -PassThru
+          $null = $p.Handle
+          if (-not $p.WaitForExit(240000)) { throw 'the installer still ran after four minutes' }
+          python packaging/check_install.py kept
+          if ($LASTEXITCODE) { exit 1 }
+          Add-AppxPackage .\newer.msix
+          $folder = (Get-AppxPackage DaytagTest.Daytag).InstallLocation
+          Start-Process "shell:AppsFolder\$env:FAMILY!Daytag"
+          python packaging/try_store.py twice $folder
+          if ($LASTEXITCODE) { exit 1 }
+          python packaging/try_store.py other
+          if ($LASTEXITCODE) { exit 1 }
+          Start-Sleep -Seconds 3
+          try { .\picture.ps1 2-remover-${{ matrix.os }} } catch { "picture: $($_.Exception.Message)" }
+          Get-Process | Where-Object { $_.Name -match '^(unins\d{3}|_iu)' } | Stop-Process -Force
+          Start-Sleep -Seconds 2
+          Start-Process "$env:LOCALAPPDATA\Programs\Daytag\unins000.exe" -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait
+          python packaging/try_store.py kept $folder
+      - name: Delete what Daytag saved
+        timeout-minutes: 4
+        run: python packaging/try_store.py forget
+      - name: What went wrong, if something did
+        if: failure()
+        run: Get-Content "$HOME\.daytag\server.log" -Tail 40 -ErrorAction SilentlyContinue
+      - uses: actions/upload-artifact@v4
+        if: always()
+        continue-on-error: true
+        with:
+          name: pictures-store-${{ matrix.os }}
+          path: |
+            *-${{ matrix.os }}.png
+            pictures/*.png
+            shots/*.png
+          if-no-files-found: ignore
+
   publish:
     # Only for a pushed tag. "Run workflow" never publishes, also not when a tag is picked there.
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-    needs: [notes, test, try-mac, try-windows]
+    needs: [notes, test, try-mac, try-windows, try-store]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -287,14 +483,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          sha256sum Brento-Mac.pkg Brento-Windows.exe > SHA256SUMS.txt
-          gh release create "$GITHUB_REF_NAME" Brento-Mac.pkg Brento-Windows.exe SHA256SUMS.txt \
-            --repo "$GITHUB_REPOSITORY" --title "Brento $GITHUB_REF_NAME" --notes-file notes.md --verify-tag
+          sha256sum Daytag-Mac.pkg Daytag-Windows.exe > SHA256SUMS.txt
+          gh release create "$GITHUB_REF_NAME" Daytag-Mac.pkg Daytag-Windows.exe SHA256SUMS.txt \
+            --repo "$GITHUB_REPOSITORY" --title "Daytag $GITHUB_REF_NAME" --notes-file notes.md --verify-tag
       - name: The download links give exactly these files
         # A private copy of this repository has no links that work without signing in.
         if: github.event.repository.private == false
         run: |
-          for f in Brento-Mac.pkg Brento-Windows.exe; do
+          for f in Daytag-Mac.pkg Daytag-Windows.exe; do
             curl -fsSL --retry 6 --retry-delay 10 --retry-all-errors -o "got-$f" "https://github.com/$GITHUB_REPOSITORY/releases/latest/download/$f"
             cmp "$f" "got-$f"
           done

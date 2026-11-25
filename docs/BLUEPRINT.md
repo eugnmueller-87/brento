@@ -1,6 +1,6 @@
-# Building your own Brento
+# Building your own Daytag
 
-Brento is small on purpose: a dozen files, the Python standard library, plain JavaScript, no build step. This page
+Daytag is small on purpose: a dozen files, the Python standard library, plain JavaScript, no build step. This page
 is the map for changing it.
 
 ## How a request flows
@@ -20,19 +20,21 @@ age of its source, and the page draws them.
 | File | What it does |
 |---|---|
 | `server.py` | Local web server on 127.0.0.1:8770. Serves the page and the JSON API; refuses foreign hosts, anyone without the owner's key, and requests that do not come from its own page |
-| `address.py` | The owner's key, the browsers that were let in, the port (8770 or the next free one) and the question whose Brento answers there. `ask-settings.json` beside it locks the Ask box |
-| `settings.py` | The owner's settings (`~/.brento/brento.json`), the list of sources, the team file (`team.json`) |
+| `address.py` | The owner's key, the browsers that were let in, the port (8770 or the next free one) and the question whose Daytag answers there. `ask-settings.json` beside it locks the Ask box |
+| `settings.py` | The owner's settings (`~/.daytag/daytag.json`), the list of sources, the team file (`team.json`) |
 | `sources.py` | One reader per source, and the rules that rank cards for Home, Today and the schedule check |
 | `wizard.py` | The first-start wizard's guesses and its few actions: create a board, run a sign-in without a window, fetch the GitHub program where the installer did not bring it |
-| `launcher.py` | Starts, stops and opens Brento without a window. Every shortcut the installers make points here |
+| `launcher.py` | Starts, stops and opens Daytag without a window. Every shortcut the installers make points here |
 | `phone.py` | The phone door on port 8771: pairing codes, device tokens (only their hashes are saved), the routes a phone may use |
 | `slack_notify.py` | Morning summary, new-card note and meeting reminder through an incoming webhook |
 | `calendar_feed.py` | Reads a private iCal link; the link never goes back to a page |
 | `library.py` | Reads the vault's notes for the Library page: titles, links, backlinks, search |
-| `tools.py` | The dock: the only list the owner edits inside Brento |
+| `tools.py` | The dock: the only list the owner edits inside Daytag |
+| `samples.py` | The sample notes, with dates around today |
+| `secret.py` | Encrypts the private links on Windows, for this account only |
 | `tools.catalog.json` | The apps the wizard offers for the dock |
 | `web/` | The page: `app.js` (all pages), `sign.js` (signs its requests), `art.js` (drawn pictures), `style.css`, `photos/` |
-| `packaging/` | Builds the two installers: `build.py`, the pinned downloads in `runtimes.json`, `mac/`, `windows/`, and the check that runs after an install |
+| `packaging/` | Builds the two installers: `build.py`, the pinned downloads in `runtimes.json`, `mac/`, `windows/`, and the check that runs after an install. `store.py` and `store/` build the package for the Microsoft Store ([STORE.md](STORE.md)) |
 | `install.sh`, `install.ps1` | Sets up the start at login and the app on a Mac (the Mac installer runs it too) or Linux; the same for a copy of the source code on Windows |
 | `tests/` | `python -m unittest discover -s tests`; GitHub runs them on every push |
 
@@ -58,14 +60,14 @@ fills the rest of the home screen with HIGH cards, then MID cards from the areas
 
 ## Teams
 
-A team shares one board; every person runs their own Brento. A card counts as yours when it is assigned to your
+A team shares one board; every person runs their own Daytag. A card counts as yours when it is assigned to your
 GitHub login (`board.me`, set by the wizard) or to nobody. `team.json` next to the code presets the board, its field
 names, the apps and Slack timing for everyone who installs from the team's copy. It is checked on load: unknown keys
 stop the start, so no secret or personal path can slip in.
 
 ## Rules worth keeping
 
-- Read, never write: no note, card or appointment is changed. The only writes are Brento's own files in `~/.brento`,
+- Read, never write: no note, card or appointment is changed. The only writes are Daytag's own files in `~/.daytag`,
   plus a board or field the owner asks the wizard to create.
 - Secrets live in their own files (`calendar-url`, `slack-webhook`, `access-key`, `browsers.json`) and never travel back to
   a page or into a log. The key is never part of an address either: the launcher asks for a ticket that works once, for
@@ -73,17 +75,17 @@ stop the start, so no secret or personal path can slip in.
 - 127.0.0.1 is shared by everyone who is signed in to a computer, and a browser gives its cookies to every port on it. So
   there is no cookie: a page signs each request (`web/sign.js`) for one address and one run of the server, and the server
   signs the answer. What another program overhears is good for nothing else, and an open page does not believe a program
-  that took Brento's place. The owner's key is only sent to a server that has proved it already knows it
+  that took Daytag's place. The owner's key is only sent to a server that has proved it already knows it
   (`address.whose`).
-- What this cannot stop: while Brento is not running, a program of another account can take its address. A page opened
+- What this cannot stop: while Daytag is not running, a program of another account can take its address. A page opened
   there by hand in that time is that program's page, and it can read what the browser keeps for the address, or stay. So
   on a computer with several accounts a browser's word ends with each run (`address.shared`), unless the owner decides
-  otherwise in the settings, and it ends everywhere once Brento finds its usual port taken. Against someone who runs such
+  otherwise in the settings, and it ends everywhere once Daytag finds its usual port taken. Against someone who runs such
   a program on your computer, no page on 127.0.0.1 is safe.
 - The page's own files are open and hold nothing. Every question to `/api/` is signed and carries the header
-  `X-Leitstand`; pictures of notes carry a seal in their address. A new route is closed to strangers by itself.
+  `X-Daytag`; pictures of notes carry a seal in their address. A new route is closed to strangers by itself.
 - What other people can write into the notes folder is data: a note is escaped, a web page in it is shown in a sandbox,
   and settings or hooks in it never reach the Ask box.
 - Only fixed programs can be started from the page (`wizard.ACTIONS`, the dock's own list), never anything a page sends.
 - A phone gets a shorter list of routes (`phone.allowed`). A new route is closed to phones until you add it there.
-- Every new cost is a design change: Brento runs without servers and paid APIs, and that is a feature.
+- Every new cost is a design change: Daytag runs without servers and paid APIs, and that is a feature.
