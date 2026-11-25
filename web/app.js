@@ -1205,7 +1205,7 @@
         + (titles.length ? '<h2 class="section-title">Titles <span>' + titles.length + '</span></h2><div class="rows">' + titles.map(noteRow).join('') + '</div>' : '')
         + '<h2 class="section-title">In the text <span>' + (hits === null ? 'searching' : text.length) + '</span></h2>'
         + (text.length ? '<div class="rows">' + text.map(noteRow).join('') + '</div>' : (error ? '<div class="empty">' + esc(error) + '</div>' : titles.length ? '' : '<div class="empty">Nothing found.</div>'))
-        + (away ? '<p class="note">' + away + (away === 1 ? ' note is' : ' notes are') + ' not on this computer yet, so the text was not searched. Brento fetches them in the background.</p>' : '');
+        + (away ? '<p class="note">' + away + (away === 1 ? ' note is' : ' notes are') + ' not on this computer yet, so the text was not searched.</p>' : '');
     };
     const res = await fetch('/api/library/search?q=' + encodeURIComponent(q)).then((r) => r.json()).catch((err) => ({ error: err.message }));
     const box = $('#lib-search');
