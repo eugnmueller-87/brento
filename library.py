@@ -285,25 +285,37 @@ class Library:
         self.lock = threading.Lock()
         # Notes that lie only in a cloud are fetched in the background. When one last failed, and whether that is running.
         self.failed, self.fetching = {}, False
+        # Notes that macOS 13 put into iCloud, so that only a stub is here.
+        self.stubs = 0
+
+    def missing(self):
+        """How many notes are not on this computer yet, so that their text is not known."""
+        return self.stubs + sum(1 for note in self.notes.values() if note["away"])
+
+    def file(self, rel):
+        return Path(sources.whole(str(self.vault / rel)))
 
     def _walk(self):
+        """(file, its path among the notes, its name). The file's path is one that Windows does not cut off."""
         before = set(settings.OLD_SKIP) <= sources.EXTRA_SKIP
-        for folder, dirs, files in os.walk(self.vault):
+        root = sources.whole(str(self.vault))
+        for folder, dirs, files in os.walk(root):
             dirs[:] = [d for d in dirs if not d.startswith(".") and d not in HIDDEN and not sources.PRIVATE.search(d)
                        and not (before and d in HIDDEN_BEFORE)]
+            base = folder[len(root):].replace(os.sep, "/").strip("/")
             for name in files:
                 if sources.PRIVATE.search(name):
                     continue
-                yield Path(folder) / name, name
+                yield Path(folder) / name, base + "/" + name if base else name, name
 
     def refresh(self):
         with self.lock:
             if self.notes and time.time() - self.stamp < self.ttl:
                 return
-            notes, assets, pages = {}, {}, set()
-            for full, name in self._walk():
-                rel = full.relative_to(self.vault).as_posix()
+            notes, assets, pages, stubs = {}, {}, set(), 0
+            for full, rel, name in self._walk():
                 suffix = full.suffix.lower()
+                stubs += 1 if sources.ICLOUD_STUB.match(name) else 0
                 if suffix in IMAGE_TYPES:
                     assets.setdefault(name.lower(), rel)
                     continue
@@ -334,7 +346,7 @@ class Library:
                 by_path[rel[:-3].lower()] = rel
                 by_title.setdefault(rel.rsplit("/", 1)[-1][:-3].lower(), []).append(rel)
             self.notes, self.assets, self.by_title, self.by_path = notes, assets, by_title, by_path
-            self.pages = pages
+            self.pages, self.stubs = pages, stubs
             backlinks = {}
             for rel, note in notes.items():
                 for target in note["links"]:
@@ -363,7 +375,7 @@ class Library:
             if time.time() - self.failed.get(rel, 0.0) < sources.RETRY_AFTER:
                 continue
             try:
-                raw = (self.vault / rel).read_text(encoding="utf-8", errors="replace")
+                raw = self.file(rel).read_text(encoding="utf-8", errors="replace")
             except OSError:
                 self.failed[rel] = time.time()
                 continue
@@ -420,7 +432,7 @@ class Library:
                     tags[tag] = tags.get(tag, 0) + 1
         entries.sort(key=lambda e: e["title"].lower())
         return {"sections": sections, "rootCount": counts.get("", 0), "notes": entries, "problem": sources.folder_problem(self.vault),
-                "away": sum(1 for note in self.notes.values() if note["away"]),
+                "away": self.missing(),
                 "tags": sorted(tags.items(), key=lambda kv: -kv[1])[:40]}
 
     def note(self, path):
@@ -431,7 +443,7 @@ class Library:
         if note["away"]:
             sources.cloud_files(True)
             try:
-                raw = (self.vault / path).read_text(encoding="utf-8", errors="replace")
+                raw = self.file(path).read_text(encoding="utf-8", errors="replace")
             except OSError:
                 raw = "This note is not on this computer, and its cloud does not deliver it at the moment."
             else:
@@ -482,7 +494,7 @@ class Library:
         self.refresh()
         if path not in self.assets.values():
             return None, None
-        full = self.vault / path
+        full = self.file(path)
         try:
             return full.read_bytes(), IMAGE_TYPES[full.suffix.lower()]
         except OSError:
@@ -495,7 +507,7 @@ class Library:
         if path not in self.pages:
             return None
         try:
-            data = (self.vault / path).read_bytes()
+            data = self.file(path).read_bytes()
         except OSError:
             return None
         if sources.PRIVATE.search(data.decode("utf-8", errors="replace")):

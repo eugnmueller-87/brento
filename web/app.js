@@ -14,7 +14,7 @@
     // A window that was let in once, or is locked, believes nobody who does not know its word.
     if (api && !WORD && LET_IN) { readWord(); if (!WORD) return locked(); }
     // What is typed here goes out only after whoever answers has shown that it is Brento.
-    if (api && WORD && o.body) { const known = await fetch('/api/tools'); if (known.status === 401) return known; }
+    if (api && WORD && (o.body || at.search)) { const known = await fetch('/api/tools', { signal: o.signal }); if (known.status === 401) return known; }
     for (let turn = 0; ; turn += 1) {
       const headers = Object.assign({ 'X-Leitstand': '1' }, o.headers), word = WORD, used = RUN;
       if (!word || !api) return window.fetch(url, Object.assign({}, o, { headers }));
@@ -1198,18 +1198,18 @@
     const main = $('#lib-main');
     const words = q.toLowerCase().split(/\s+/);
     const titles = LIB.notes.filter((n) => words.every((w) => n.title.toLowerCase().includes(w))).slice(0, 12);
-    const draw = (hits) => {
+    const draw = (hits, away, error) => {
       const seen = new Set(titles.map((n) => n.path));
       const text = hits.filter((h) => !seen.has(h.path));
       main.innerHTML = '<header class="ph"><h1>' + esc(q) + '</h1></header>'
         + (titles.length ? '<h2 class="section-title">Titles <span>' + titles.length + '</span></h2><div class="rows">' + titles.map(noteRow).join('') + '</div>' : '')
         + '<h2 class="section-title">In the text <span>' + (hits === null ? 'searching' : text.length) + '</span></h2>'
-        + (text.length ? '<div class="rows">' + text.map(noteRow).join('') + '</div>' : (titles.length ? '' : '<div class="empty">Nothing found.</div>'))
-        + (LIB.away ? '<p class="note">' + LIB.away + (LIB.away === 1 ? ' note is' : ' notes are') + ' not on this computer yet, so the text was not searched. Brento fetches them in the background.</p>' : '');
+        + (text.length ? '<div class="rows">' + text.map(noteRow).join('') + '</div>' : (error ? '<div class="empty">' + esc(error) + '</div>' : titles.length ? '' : '<div class="empty">Nothing found.</div>'))
+        + (away ? '<p class="note">' + away + (away === 1 ? ' note is' : ' notes are') + ' not on this computer yet, so the text was not searched. Brento fetches them in the background.</p>' : '');
     };
-    const res = await fetch('/api/library/search?q=' + encodeURIComponent(q)).then((r) => r.json()).catch(() => ({ hits: [] }));
+    const res = await fetch('/api/library/search?q=' + encodeURIComponent(q)).then((r) => r.json()).catch((err) => ({ error: err.message }));
     const box = $('#lib-search');
-    if (route === 'library' && box && box.value.trim() === q) draw(res.hits || []);
+    if (route === 'library' && box && box.value.trim() === q) draw(res.hits || [], Number(res.away) || 0, res.error);
   }
 
   /* Pipeline */
@@ -2175,12 +2175,20 @@
   }
 
   /* Data */
-  let webVersion = null, lookAgain = 0, looked = 0, silent = false;
+  let webVersion = null, lookAgain = 0, looked = 0, lastRead = '';
+  // Stands above the page for as long as Brento does not answer, because what is below is from before.
+  function standing(text) {
+    let el = $('#standing');
+    if (!text) { if (el) el.remove(); return; }
+    if (!el) { el = document.createElement('div'); el.id = 'standing'; el.setAttribute('role', 'status'); document.body.append(el); }
+    if (el.textContent !== text) el.textContent = text;
+  }
   async function load() {
     try {
       const res = await fetch('/api/state');
       if (res.status === 401) {
         const j = await res.json().catch(() => ({}));
+        standing('');
         if (j.locked) showLocked();
         // A phone that is no longer paired: the page that comes back asks for the code.
         else if (!WORD) location.reload();
@@ -2189,13 +2197,14 @@
       if (!res.ok) throw new Error('HTTP ' + res.status);
       const text = await res.text();
       if (document.documentElement.classList.contains('locked')) { location.reload(); return; }
-      silent = false;
+      standing('');
       const now = new Date();
+      lastRead = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
       // Something is still being read: look again soon, not only in a minute.
       clearTimeout(lookAgain);
       looked = (JSON.parse(text).sources || []).some((s) => s.note === 'still loading') ? looked + 1 : 0;
       if (looked && looked < 20) lookAgain = setTimeout(load, 3000);
-      $('#refresh').title = 'Refresh now (R). Last read ' + String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+      $('#refresh').title = 'Refresh now (R). Last read ' + lastRead;
       if (text === stateText) return;
       const first = !S;
       stateText = text;
@@ -2211,9 +2220,10 @@
       if (!['ask', 'library', 'setup', 'settings'].includes(route)) refreshInPlace();
       popAlert();
     } catch (err) {
-      // Said once: what stands here is from before.
-      if (S && !silent) toast(/Something else/.test(err.message) ? err.message : 'Brento is not answering. What you see here is from before.');
-      silent = true;
+      if (S) standing(/Something else/.test(err.message) ? err.message : 'Brento is not answering. What you see here is from ' + lastRead + '.');
+      // Back soon after it is back.
+      clearTimeout(lookAgain);
+      lookAgain = setTimeout(load, 5000);
       if (!S) $('#view').innerHTML = '<div class="offline"><b>Brento is not answering.</b><br>On the computer, open it with its icon: press the Windows key, or Cmd and Space on a Mac, type Brento and press Enter. On a phone: is the computer on, and in the same Wi-Fi?</div>';
     }
   }

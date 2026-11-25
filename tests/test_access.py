@@ -721,7 +721,10 @@ class Reading(unittest.TestCase):
                 out.write("- [ ] Far down \U0001f4c5 2099-01-02\n")
             data, src = sources.read_tasks(sources.TaskIndex(Path(tmp)), today)
             self.assertEqual(([t["title"] for t in data["items"]], src["state"]), (["Far down"], "fresh"))
-            self.assertTrue(data["items"][0]["path"].startswith("a folder with a rather long name"))
+            path = data["items"][0]["path"]
+            self.assertTrue(path.startswith("a folder with a rather long name"))
+            # The library opens it, too.
+            self.assertIn("Far down", server.library.Library(Path(tmp)).note(path)["html"])
             shutil.rmtree(sources.whole(tmp), ignore_errors=True)
             os.makedirs(tmp, exist_ok=True)
 

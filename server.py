@@ -692,7 +692,8 @@ class Handler(BaseHTTPRequestHandler):
             note = self.app.library.note((parse_qs(url.query).get("path") or [""])[0])
             self.send_json(note if note else {"error": "No such note"}, 200 if note else 404)
         elif url.path == "/api/library/search":
-            self.send_json({"hits": self.app.library.search((parse_qs(url.query).get("q") or [""])[0][:200])})
+            hits = self.app.library.search((parse_qs(url.query).get("q") or [""])[0][:200])
+            self.send_json({"hits": hits, "away": self.app.library.missing()})
         elif url.path == "/api/library/asset":
             data, ctype = self.app.library.asset((parse_qs(url.query).get("path") or [""])[0])
             if data is None:

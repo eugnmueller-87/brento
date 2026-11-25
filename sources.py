@@ -129,7 +129,9 @@ def fetch_later(path):
         cloud_files(True)
         try:
             with open(path, "rb") as file:
-                file.read(1)
+                # To the end: some clouds bring no more than is asked for.
+                while file.read(1 << 20):
+                    pass
         except OSError:
             pass
         with FETCHING_LOCK:
@@ -1626,7 +1628,7 @@ def build_state(vault, board, today=None, registry=(), calendar=None, removed=fr
         company = "Companies/%s.md" % entry["link"]
         entry["notePath"] = (company if library_on and os.path.isfile(str(Path(vault) / company)) else titles.get(entry["link"].lower()))
     for task in task_data["items"]:
-        task["notePath"] = task["path"] if library_on else None
+        task["notePath"] = task["path"] if library_on and os.path.isfile(whole(str(Path(vault) / task["path"]))) else None
     for src in srcs:
         if src["id"] == "board":
             src["route"] = "board"

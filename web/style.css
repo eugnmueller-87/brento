@@ -635,6 +635,7 @@ a.chip { text-decoration: none; }
 .wz-extra { display: grid; gap: 8px; padding: 14px 16px; border-radius: 13px; background: var(--panel-2); border: 1px solid var(--line); }
 .wz-extra p { color: var(--muted); }
 /* The way on stays in sight, also on a small window where the page is longer than the screen. */
+#standing { position: fixed; z-index: 95; top: 10px; left: 50%; transform: translateX(-50%); max-width: calc(100vw - 32px); padding: 9px 16px; border-radius: 12px; background: #2a1a12; border: 1px solid rgba(255, 140, 90, .55); color: #ffd9c7; font: 500 13px/1.45 var(--text); }
 #wz-found { min-height: 24px; }
 .wz-nav #wz-error { flex: 1 0 100%; }
 .wz-nav #wz-error:empty { display: none; }
