@@ -65,4 +65,4 @@ Daytag is a tool for work and everyday life and is not made for children.
 
 Write to [eugnmueller@googlemail.com](mailto:eugnmueller@googlemail.com), also about a bad answer of the Ask box. Or open an
 issue at [github.com/eugnmueller-87/daytag/issues](https://github.com/eugnmueller-87/daytag/issues): those are public, so
-please put nothing private in there. Publisher: Eugen Mueller. In the Microsoft Store the publisher's name is Daytag.
+please put nothing private in there. Publisher: Eugen Mueller.
